@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+futures-util = "0.3.27"
 # Use system version of openssl
-futures_util = "0.3.27"
 openssl-sys = "0.9"
 openssl = "0.10"
 tokio = { version = "1.16.1", features = ["full"] }
