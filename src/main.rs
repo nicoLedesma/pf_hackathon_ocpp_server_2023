@@ -3,6 +3,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_native_tls::{TlsAcceptor, TlsStream};
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
+use futures_util::sink::SinkExt;
 
 #[tokio::main]
 async fn main() {
