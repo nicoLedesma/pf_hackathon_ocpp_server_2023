@@ -10,8 +10,10 @@ futures-util = "0.3.27"
 # Use system version of openssl
 openssl-sys = "0.9"
 openssl = "0.10"
+native-tls = "0.2.11"
 tokio = { version = "1.16.1", features = ["full"] }
 tokio-tungstenite = "0.18.0"
+# Good job, chatgpt, avoiding the deprecated tokio_tls crate
 tokio-native-tls = "0.3.1"
 tungstenite = "0.18.0"
 

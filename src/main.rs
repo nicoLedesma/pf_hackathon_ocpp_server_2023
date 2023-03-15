@@ -1,7 +1,7 @@
 use futures_util::sink::SinkExt;
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_native_tls::{TlsAcceptor, TlsStream};
+use tokio_native_tls::TlsStream;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
@@ -16,7 +16,9 @@ async fn main() {
             .unwrap();
 
     // Create the TLS acceptor
-    let tls_acceptor = TlsAcceptor::from(identity);
+    let tls_acceptor = tokio_native_tls::TlsAcceptor::from(
+        native_tls::TlsAcceptor::builder(identity).build().unwrap(),
+    );
 
     // Bind the TCP listener
     let addr = "0.0.0.0:8080".parse::<SocketAddr>().unwrap();
