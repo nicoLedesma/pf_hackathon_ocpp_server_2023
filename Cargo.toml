@@ -6,6 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# Use system version of openssl
+openssl-sys = "0.9"
+openssl = "0.10"
 tokio = { version = "1.16.1", features = ["full"] }
 tokio-tungstenite = "0.18.0"
 tokio-native-tls = "0.3.1"
