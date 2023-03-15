@@ -1,4 +1,4 @@
-use futures_util::sink::SinkExt;
+use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_native_tls::TlsStream;
@@ -36,10 +36,10 @@ async fn main() {
 
 async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
     // Accept the WebSocket handshake
-    let ws_stream = accept_async(tls_stream).await.unwrap();
+    let mut ws_stream = accept_async(tls_stream).await.unwrap();
 
     // Handle incoming messages
-    for msg in ws_stream.incoming() {
+    while let Some(msg) = ws_stream.next().await {
         match msg {
             Ok(Message::Text(text)) => {
                 println!("Received text message: {}", text);
@@ -62,4 +62,3 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
         }
     }
 }
-
