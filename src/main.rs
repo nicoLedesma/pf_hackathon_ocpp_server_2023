@@ -8,9 +8,9 @@ use tungstenite::Message;
 #[tokio::main]
 async fn main() {
     // Load the TLS certificate and private key
-    let cert = tokio::fs::read("cert.pem").await.unwrap();
-    let key = tokio::fs::read_to_string("key.pem").await.unwrap();
-    let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&cert).unwrap();
+    let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der").await.unwrap();
+    let key = tokio::fs::read_to_string("identity_password.txt").await.unwrap();
+    let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der).unwrap();
     let identity =
         tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12.to_der().unwrap(), &key)
             .unwrap();
@@ -21,7 +21,7 @@ async fn main() {
     );
 
     // Bind the TCP listener
-    let addr = "0.0.0.0:8080".parse::<SocketAddr>().unwrap();
+    let addr = "0.0.0.0:8765".parse::<SocketAddr>().unwrap();
     let tcp_listener = TcpListener::bind(&addr).await.unwrap();
 
     println!("Listening on: {}", addr);
