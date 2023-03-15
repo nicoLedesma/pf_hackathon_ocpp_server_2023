@@ -54,6 +54,7 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
             Ok(Message::Close(_)) => {
                 break;
             }
+            Ok(Message::Frame(_)) => {}
             Err(err) => {
                 eprintln!("Error receiving message: {:?}", err);
                 break;
