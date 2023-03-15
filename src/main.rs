@@ -9,7 +9,8 @@ async fn main() {
     // Load the TLS certificate and private key
     let cert = tokio::fs::read("cert.pem").await.unwrap();
     let key = tokio::fs::read("key.pem").await.unwrap();
-    let identity = tokio_native_tls::native_tls::Identity::from_pem(cert.as_ref(), key.as_ref());
+    let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&cert).unwrap();
+    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12.to_der().unwrap(), &key).unwrap();
 
     // Create the TLS acceptor
     let tls_acceptor = TlsAcceptor::from(identity);
@@ -33,7 +34,7 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
     let ws_stream = accept_async(tls_stream).await.unwrap();
 
     // Handle incoming messages
-    for msg in ws_stream.try_iter() {
+    for msg in ws_stream.incoming() {
         match msg {
             Ok(Message::Text(text)) => {
                 println!("Received text message: {}", text);
@@ -42,7 +43,7 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
                 println!("Received binary message with length: {}", data.len());
             }
             Ok(Message::Ping(data)) => {
-                ws_stcartoream.send(Message::Pong(data)).await.unwrap();
+                ws_stream.send(Message::Pong(data)).await.unwrap();
             }
             Ok(Message::Pong(_)) => {}
             Ok(Message::Close(_)) => {
