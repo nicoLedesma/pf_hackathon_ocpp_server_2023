@@ -1,17 +1,19 @@
+use futures_util::sink::SinkExt;
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_native_tls::{TlsAcceptor, TlsStream};
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
-use futures_util::sink::SinkExt;
 
 #[tokio::main]
 async fn main() {
     // Load the TLS certificate and private key
     let cert = tokio::fs::read("cert.pem").await.unwrap();
-    let key = tokio::fs::read("key.pem").await.unwrap();
+    let key = tokio::fs::read_to_string("key.pem").await.unwrap();
     let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&cert).unwrap();
-    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12.to_der().unwrap(), &key).unwrap();
+    let identity =
+        tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12.to_der().unwrap(), &key)
+            .unwrap();
 
     // Create the TLS acceptor
     let tls_acceptor = TlsAcceptor::from(identity);
@@ -57,3 +59,4 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
         }
     }
 }
+
