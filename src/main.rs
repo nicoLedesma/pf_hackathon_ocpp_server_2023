@@ -1,8 +1,7 @@
 use std::net::SocketAddr;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_native_tls::{TlsAcceptor, TlsStream};
 use tokio_tungstenite::accept_async;
-use tungstenite::handshake::server::{Request, Response};
 use tungstenite::Message;
 
 #[tokio::main]
@@ -10,7 +9,7 @@ async fn main() {
     // Load the TLS certificate and private key
     let cert = tokio::fs::read("cert.pem").await.unwrap();
     let key = tokio::fs::read("key.pem").await.unwrap();
-    let identity = tokio_native_tls::Identity::from_pem(cert.as_ref(), key.as_ref());
+    let identity = tokio_native_tls::native_tls::Identity::from_pem(cert.as_ref(), key.as_ref());
 
     // Create the TLS acceptor
     let tls_acceptor = TlsAcceptor::from(identity);
@@ -43,7 +42,7 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
                 println!("Received binary message with length: {}", data.len());
             }
             Ok(Message::Ping(data)) => {
-                ws_stream.send(Message::Pong(data)).await.unwrap();
+                ws_stcartoream.send(Message::Pong(data)).await.unwrap();
             }
             Ok(Message::Pong(_)) => {}
             Ok(Message::Close(_)) => {
