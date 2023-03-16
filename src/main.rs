@@ -2,20 +2,47 @@ use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use tokio::task;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
-const ENABLE_TLS: bool = false;
-const ADDR: &str = "127.0.0.1:8765";
+#[derive(Clone, Copy)]
+enum Protocol {
+    WS,
+    WSS,
+}
+
+const ADDRESSES: &[(Protocol, &str)] = &[
+    (Protocol::WS, "127.0.0.1:8765"),
+    (Protocol::WSS, "127.0.0.1:8766"),
+];
 
 #[tokio::main]
 async fn main() {
-    let addr = ADDR.parse::<SocketAddr>().expect("Failed to parse address");
-    println!("Will listen on: wss://{}", addr);
-    if ENABLE_TLS {
-        serve_encrypted_tls(&addr).await;
-    } else {
-        serve_unencrypted(&addr).await;
+    let mut tasks = Vec::new();
+
+    for &(protocol, address) in ADDRESSES {
+        let addr = address
+            .parse::<SocketAddr>()
+            .expect("Failed to parse address");
+
+        let server_task = match protocol {
+            Protocol::WS => {
+                println!("Will listen on: ws://{}", addr);
+                task::spawn(serve_unencrypted(addr))
+            }
+            Protocol::WSS => {
+                println!("Will listen on: wss://{}", addr);
+                task::spawn(serve_encrypted_tls(addr))
+            }
+        };
+
+        tasks.push(server_task);
+    }
+
+    // Wait for all tasks to complete
+    for task in tasks {
+        task.await.unwrap();
     }
 }
 
