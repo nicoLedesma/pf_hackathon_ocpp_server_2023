@@ -5,8 +5,35 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
+const ENABLE_TLS: bool = false;
+const ADDR: &str = "127.0.0.1:8765";
+
 #[tokio::main]
 async fn main() {
+    let addr = ADDR.parse::<SocketAddr>().expect("Failed to parse address");
+    println!("Will listen on: wss://{}", addr);
+    if ENABLE_TLS {
+        serve_encrypted_tls(&addr).await;
+    } else {
+        serve_unencrypted(&addr).await;
+    }
+}
+
+async fn serve_unencrypted(addr: &SocketAddr) {
+    // Bind the TCP listener
+    let tcp_listener = TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind to address");
+
+    // Accept incoming connections
+    loop {
+        if let Err(e) = accept_unencrypted_connection(&tcp_listener).await {
+            println!("Error! {:?}", e);
+        }
+    }
+}
+
+async fn serve_encrypted_tls(addr: &SocketAddr) {
     // Load the TLS certificate and private key from the Identity file
     let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der")
         .await
@@ -30,24 +57,19 @@ async fn main() {
     );
 
     // Bind the TCP listener
-    let addr = "127.0.0.1:8765"
-        .parse::<SocketAddr>()
-        .expect("Failed to parse address");
     let tcp_listener = TcpListener::bind(&addr)
         .await
         .expect("Failed to bind to address");
 
-    println!("Listening on: wss://{}", addr);
-
     // Accept incoming connections
     loop {
-        if let Err(e) = accept_connection(&tcp_listener, &tls_acceptor).await {
+        if let Err(e) = accept_tls_connection(&tcp_listener, &tls_acceptor).await {
             println!("Error! {:?}", e);
         }
     }
 }
 
-async fn accept_connection(
+async fn accept_tls_connection(
     tcp_listener: &TcpListener,
     tls_acceptor: &tokio_native_tls::TlsAcceptor,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -58,6 +80,18 @@ async fn accept_connection(
     println!("Connection received from {}", peer_addr);
     let tls_stream = tls_acceptor.accept(tcp_stream).await?;
     tokio::spawn(handle_connection(tls_stream, peer_addr));
+    Ok(())
+}
+
+async fn accept_unencrypted_connection(
+    tcp_listener: &TcpListener,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (tcp_stream, _) = tcp_listener.accept().await?;
+    let peer_addr = tcp_stream
+        .peer_addr()
+        .expect("Unable to find new connection's incoming address");
+    println!("Connection received from {}", peer_addr);
+    tokio::spawn(handle_connection(tcp_stream, peer_addr));
     Ok(())
 }
 
