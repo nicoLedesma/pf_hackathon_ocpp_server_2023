@@ -15,7 +15,7 @@ enum Protocol {
 
 const ADDRESSES: &[(Protocol, &str)] = &[
     (Protocol::WS, "127.0.0.1:8765"),
-    (Protocol::WSS, "127.0.0.1:8766"),
+    (Protocol::WSS, "127.0.0.1:5678"),
 ];
 
 #[tokio::main]
@@ -30,7 +30,7 @@ async fn main() {
             }
             Protocol::WSS => {
                 println!("Will listen on: wss://{}", address);
-                task::spawn(serve_encrypted_tls(&address))
+                task::spawn(serve_encrypted_tls(address))
             }
         };
 
@@ -43,39 +43,62 @@ async fn main() {
     }
 }
 
-async fn serve_unencrypted(addr: &str) {
+async fn bind(addr: &str) -> Result<TcpListener, Box<dyn std::error::Error>> {
     // Bind the TCP listener
-    let tcp_listener = TcpListener::bind(
-        String::from_str(addr).unwrap()
+    Ok(TcpListener::bind(
+        String::from_str(addr)
+            .unwrap()
             .parse::<SocketAddr>()
-            .expect("Failed to parse socket address")
+            .expect("Failed to parse socket address"),
     )
     .await
-    .expect("Failed to bind to address");
+    .expect("Failed to bind to address"))
+}
 
+async fn serve_unencrypted(addr: &str) {
     // Accept incoming connections
+    let tcp_listener = bind(addr).await.unwrap();
     loop {
-        if let Err(e) = accept_unencrypted_connection(&tcp_listener).await {
-            println!("Error! {:?}", e);
+        if let Err(e) = accept_unencrypted_connection(addr, &tcp_listener).await {
+            eprintln!("Error! {:?}", e);
         }
     }
 }
 
 async fn serve_encrypted_tls(addr: &str) {
+    // Bind the TCP listener before attempting to load any TLS stuff
+    // TODO how to get rid of this unwrap? I'm getting future returned by `serve_encrypted_tls` is not `Send`
+    let tcp_listener = bind(addr).await.unwrap();
+
     // Load the TLS certificate and private key from the Identity file
     let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der")
         .await
         .expect("Failed to read the PKCS12 DER file");
-    let key = tokio::fs::read_to_string("identity_password.txt")
+    let password = tokio::fs::read_to_string("identity_password.txt")
         .await
         .expect("Failed to read the identity password file");
     let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der)
         .expect("Failed to create Pkcs12 from DER");
-    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(
-        &pkcs12.to_der().expect("Failed to convert Pkcs12 to DER"),
-        &key,
-    )
-    .expect("Failed to create Identity from PKCS12 and key");
+    let pkcs12_der = pkcs12.to_der().expect("Failed to convert Pkcs12 to DER");
+    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12_der, &password)
+        .expect("Failed to create Identity from PKCS12 and key");
+
+    println!(
+        "Loaded TLS identity (cert and private key) for address {}",
+        addr
+    );
+    let openssl_pkcs12 =
+        openssl::pkcs12::Pkcs12::from_der(&pkcs12_der.as_slice()).expect("Failed to parse");
+    let cert = openssl_pkcs12
+        .parse2(&password)
+        .unwrap()
+        .cert
+        .expect("No cert found");
+    println!(
+        "Loaded cert with Subject alt names (SNA): {:?}",
+        cert.subject_alt_names()
+            .expect("Cert must have SNA field. CN field is deprecated.")
+    );
 
     // Create the TLS acceptor
     let tls_acceptor = tokio_native_tls::TlsAcceptor::from(
@@ -84,24 +107,16 @@ async fn serve_encrypted_tls(addr: &str) {
             .expect("Failed to build a native_tls TLS acceptor object"),
     );
 
-    // Bind the TCP listener
-    let tcp_listener = TcpListener::bind(
-        String::from_str(addr).unwrap()
-            .parse::<SocketAddr>()
-            .expect("Failed to parse socket address")
-    )
-    .await
-    .expect("Failed to bind to address");
-
     // Accept incoming connections
     loop {
-        if let Err(e) = accept_tls_connection(&tcp_listener, &tls_acceptor).await {
-            println!("Error! {:?}", e);
+        if let Err(e) = accept_tls_connection(addr, &tcp_listener, &tls_acceptor).await {
+            eprintln!("Error! {:?}", e);
         }
     }
 }
 
 async fn accept_tls_connection(
+    addr: &str,
     tcp_listener: &TcpListener,
     tls_acceptor: &tokio_native_tls::TlsAcceptor,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -109,20 +124,21 @@ async fn accept_tls_connection(
     let peer_addr = tcp_stream
         .peer_addr()
         .expect("Unable to find new connection's incoming address");
-    println!("Connection received from {}", peer_addr);
+    println!("Connection to {} received from {}", addr, peer_addr);
     let tls_stream = tls_acceptor.accept(tcp_stream).await?;
     tokio::spawn(handle_connection(tls_stream, peer_addr));
     Ok(())
 }
 
 async fn accept_unencrypted_connection(
+    addr: &str,
     tcp_listener: &TcpListener,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tcp_stream, _) = tcp_listener.accept().await?;
     let peer_addr = tcp_stream
         .peer_addr()
         .expect("Unable to find new connection's incoming address");
-    println!("Connection received from {}", peer_addr);
+    println!("Connection to {} received from {}", addr, peer_addr);
     tokio::spawn(handle_connection(tcp_stream, peer_addr));
     Ok(())
 }
