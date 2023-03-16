@@ -52,13 +52,17 @@ async fn accept_connection(
     tls_acceptor: &tokio_native_tls::TlsAcceptor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tcp_stream, _) = tcp_listener.accept().await?;
-    println!("Connection received from {:?}", tcp_stream.peer_addr());
+    let peer_addr = tcp_stream
+        .peer_addr()
+        .expect("Unable to find new connection's incoming address")
+        .to_string();
+    println!("Connection received from {:?}", peer_addr);
     let tls_stream = tls_acceptor.accept(tcp_stream).await?;
-    tokio::spawn(handle_connection(tls_stream));
+    tokio::spawn(handle_connection(tls_stream, peer_addr));
     Ok(())
 }
 
-async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
+async fn handle_connection(tls_stream: TlsStream<TcpStream>, peer_addr: String) {
     // Accept the WebSocket handshake
     let mut ws_stream = accept_async(tls_stream)
         .await
@@ -66,6 +70,7 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {
+        println!("Websocket message from {}", &peer_addr);
         match msg {
             Ok(Message::Text(text)) => {
                 println!("Received text message: {}", text);
@@ -88,9 +93,16 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
                 break;
             }
             Ok(Message::Frame(_)) => {}
+            Err(tungstenite::Error::Protocol(
+                tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
+            )) => {
+                eprintln!("Client closed without Websocket Closing Handshake");
+                return;
+            }
             Err(err) => {
-                eprintln!("Error receiving message: {:?}", err);
-                break;
+                // Are any of these errors recoverable?
+                eprintln!("Error while processing websocket message: {}", err);
+                return;
             }
         }
     }
