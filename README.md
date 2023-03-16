@@ -25,3 +25,18 @@ Finally, connect a websocket client that is aware of our self-generated certific
 cargo install websocat
 SSL_CERT_FILE=cert.pem websocat wss://127.0.0.1:8765
 ```
+
+## Using AI
+
+Having clear the objective we wanted to achieve, we used AI (ChatGPT) from the beginning of the project 
+we used the AI (ChatGPT) from the beginning of the project with analytical criteria and analyzing the results of its responses. 
+At the beginning we tried to ask for code suggestions to build a websocket server with TLS(Rust) security which was very interesting at first, but when we compiled the code directly as suggested by the AI, we found several errors. 
+These bugs were mainly in the use of crates and the different functions that were supposed to be implemented and that we could use.
+We then consulted it about the bugs, copying and pasting the output of the Rust compiler, but ChatGPT could not resolve them as the various suggestions generated new bugs.
+Although it is a very powerful tool that paved the way for us, copying and pasting code was not enough.
+
+On the other hand, when we worked with openssl to generate a self-signed certificate, Chatgpt was a valuable ally to query the various errors we encountered when we wanted to parse the certificate with our Rust code.
+
+On the other hand, we used https://github.com/CompVis/stable-diffusion Stable Diffusion on an NVIDIA GPU with 8GB of VRAM to generate images that we then chose as the project logo.
+
+As alternatives to ChatGTP, we tried to use Facebook's LLAMA and GALACTICA but we found that they don't know much about Rust or OCPP.
