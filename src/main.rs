@@ -16,6 +16,7 @@ enum Protocol {
 const ADDRESSES: &[(Protocol, &str)] = &[
     (Protocol::WS, "127.0.0.1:8765"),
     (Protocol::WSS, "127.0.0.1:5678"),
+    (Protocol::WSS, "192.168.50.174:5678"),
 ];
 
 #[tokio::main]

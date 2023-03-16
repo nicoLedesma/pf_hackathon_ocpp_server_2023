@@ -26,7 +26,7 @@ self-signed-cert.p12-generation:
 	# The SAN extension allows for more flexible and standardized identification of SSL/TLS certificate subjects, including support for domain names, IP addresses, and email addresses. By using the SAN extension, SSL/TLS certificates can be more easily interpreted and validated, which can improve security and reduce the risk of misidentification or attacks.
 	openssl req -new -passin file:"${PASSWORD_FILE}" -key key.pem \
 		-subj "/CN=localhost/O=PowerFlex/OU=Hackathon 2023" \
-		-addext "subjectAltName = DNS:localhost, IP:127.0.0.1" \
+		-addext "subjectAltName = DNS:localhost, IP:127.0.0.1, IP:192.168.50.174" \
 		-out cert.csr
 
 	# Generate self-signed certificate
