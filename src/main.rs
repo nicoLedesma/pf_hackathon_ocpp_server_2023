@@ -168,16 +168,23 @@ where
                 println!("Received binary message with length: {}", data.len());
             }
             Ok(Message::Ping(data)) => {
+                println!("Received PING message with length: {}", data.len());
+                println!("Sent PONG message in response to PING {:?}", &data);
                 ws_stream
                     .send(Message::Pong(data))
                     .await
                     .expect("Failed to send PONG in response to PING websocket message");
             }
-            Ok(Message::Pong(_)) => {}
-            Ok(Message::Close(_)) => {
-                break;
+            Ok(Message::Pong(data)) => {
+                println!("Received PONG message with length: {}", data.len());
             }
-            Ok(Message::Frame(_)) => {}
+            Ok(Message::Close(data)) => {
+                println!("Received CLOSE message {:?}", data);
+                return;
+            }
+            Ok(Message::Frame(data)) => {
+                println!("Received FRAME message with length: {}", data.len());
+            }
             Err(tungstenite::Error::Protocol(
                 tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
             )) => {
