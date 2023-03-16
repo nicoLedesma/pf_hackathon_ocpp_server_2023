@@ -7,15 +7,20 @@ use tungstenite::Message;
 
 #[tokio::main]
 async fn main() {
-    // Load the TLS certificate and private key
-    let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der").await.unwrap();
+    // Load the TLS certificate and private key from the Identity file
+    let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der")
+        .await
+        .expect("Failed to read the PKCS12 DER file");
     let key = tokio::fs::read_to_string("identity_password.txt")
         .await
-        .unwrap();
-    let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der).unwrap();
-    let identity =
-        tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12.to_der().unwrap(), &key)
-            .unwrap();
+        .expect("Failed to read the identity password file");
+    let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der)
+        .expect("Failed to create Pkcs12 from DER");
+    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(
+        &pkcs12.to_der().expect("Failed to convert Pkcs12 to DER"),
+        &key,
+    )
+    .expect("Failed to create Identity from PKCS12 and key");
 
     // Create the TLS acceptor
     let tls_acceptor = tokio_native_tls::TlsAcceptor::from(
