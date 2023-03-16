@@ -1,5 +1,12 @@
 PASSWORD_FILE=password.txt
 IDENTITY_PASSWORD_FILE=identity_password.txt
+
+print-cert-contents:
+	openssl x509 -in cert.pem -noout -text
+
+print-identity-contents:
+	echo TODO
+
 ##############################################################################
 #Generate self-signed certificate for TLS
 ##############################################################################
