@@ -37,7 +37,7 @@ async fn main() {
         .await
         .expect("Failed to bind to address");
 
-    println!("Listening on: {}", addr);
+    println!("Listening on: wss://{}", addr);
 
     // Accept incoming connections
     loop {
@@ -54,15 +54,14 @@ async fn accept_connection(
     let (tcp_stream, _) = tcp_listener.accept().await?;
     let peer_addr = tcp_stream
         .peer_addr()
-        .expect("Unable to find new connection's incoming address")
-        .to_string();
-    println!("Connection received from {:?}", peer_addr);
+        .expect("Unable to find new connection's incoming address");
+    println!("Connection received from {}", peer_addr);
     let tls_stream = tls_acceptor.accept(tcp_stream).await?;
     tokio::spawn(handle_connection(tls_stream, peer_addr));
     Ok(())
 }
 
-async fn handle_connection(tls_stream: TlsStream<TcpStream>, peer_addr: String) {
+async fn handle_connection(tls_stream: TlsStream<TcpStream>, peer_addr: SocketAddr) {
     // Accept the WebSocket handshake
     let mut ws_stream = accept_async(tls_stream)
         .await
