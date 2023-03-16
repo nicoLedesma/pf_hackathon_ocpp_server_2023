@@ -100,7 +100,28 @@ async fn handle_connection(tls_stream: TlsStream<TcpStream>, peer_addr: String) 
                 return;
             }
             Err(err) => {
-                // Are any of these errors recoverable?
+                /*
+                                Are any of these errors recoverable?
+
+                                Chat GPT 4:
+                                WebSocket protocol errors can be categorized into two types: recoverable and non-recoverable errors. It's important to understand which errors can be recovered from and which require closing the WebSocket connection.
+
+                                Recoverable errors:
+                                Recoverable errors are those that can be handled by the server without closing the WebSocket connection. These errors might include:
+
+                                Invalid message format: If the server receives a message with an invalid format, it may ignore the message and continue processing subsequent messages.
+                                Application-level errors: Errors that occur within the application logic that uses the WebSocket connection can often be handled without closing the connection. For example, if a chat server receives a malformed chat message, it could respond with an error message to the client but keep the connection open for further communication.
+
+                                Non-recoverable errors:
+                                Non-recoverable errors are those that require closing the WebSocket connection. These errors often involve issues with the WebSocket protocol itself or with the underlying transport (e.g., TCP). Examples of non-recoverable errors include:
+
+                                Protocol violations: If a client sends a message that violates the WebSocket protocol, such as using a reserved opcode or providing an incorrect payload length, the server should close the connection.
+                                Connection issues: If the underlying TCP connection is lost or experiences severe issues (e.g., high latency, packet loss), the WebSocket connection may need to be closed.
+                                Authentication or authorization issues: If a client fails to authenticate or does not have the necessary permissions to perform an action, the server may decide to close the connection.
+                                Resource constraints: If the server is running low on resources (e.g., memory, CPU), it might decide to close some WebSocket connections to free up resources.
+
+                In general, it's essential to handle errors gracefully and only close the WebSocket connection when necessary. Always consider the specific requirements and constraints of your application when deciding how to handle errors.
+                                */
                 eprintln!("Error while processing websocket message: {}", err);
                 return;
             }
