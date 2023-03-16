@@ -1,4 +1,5 @@
 # OCPP-J 1.6 websocket server
+![Logo de Github](https://github.com/nicoLedesma/pf_hackathon_ocpp_server_2023/blob/66430895beee9913cb286ba041b0ccaf33ebf59e/logo.png)
 
 A Rust server for receiving websocket connections from OCPP EVSEs.
 
