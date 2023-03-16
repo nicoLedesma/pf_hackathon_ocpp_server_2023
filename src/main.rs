@@ -29,11 +29,11 @@ async fn main() {
         let server_task = match protocol {
             Protocol::WS => {
                 println!("Will listen on: ws://{}", addr);
-                task::spawn(serve_unencrypted(addr))
+                task::spawn(serve_unencrypted(&addr))
             }
             Protocol::WSS => {
                 println!("Will listen on: wss://{}", addr);
-                task::spawn(serve_encrypted_tls(addr))
+                task::spawn(serve_encrypted_tls(&addr))
             }
         };
 
