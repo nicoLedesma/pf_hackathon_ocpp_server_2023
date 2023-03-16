@@ -5,7 +5,7 @@ print-cert-contents:
 	openssl x509 -in cert.pem -noout -text
 
 print-identity-contents:
-	echo TODO
+	openssl pkcs12 -in identity.p12.der -info -nodes -passin file:identity_password.txt
 
 ##############################################################################
 #Generate self-signed certificate for TLS
