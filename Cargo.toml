@@ -16,5 +16,9 @@ tokio-tungstenite = "0.18.0"
 # Good job, chatgpt, avoiding the deprecated tokio_tls crate
 tokio-native-tls = "0.3.1"
 tungstenite = "0.18.0"
-
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "0.8", features = ["serde", "v4"] }
+anyhow = "1.0"
 

@@ -7,6 +7,8 @@ use tokio::task;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
+pub mod ocpp;
+
 #[derive(Clone, Copy)]
 enum Protocol {
     WS,
@@ -152,20 +154,25 @@ where
     let mut ws_stream = accept_async(stream)
         .await
         .expect("Failed to accept websocket connection");
+    let mut state:crate::ocpp::EvseStateOption = crate::ocpp::EvseStateOption::Empty;
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {
         println!("Websocket message from {}", &peer_addr);
         match msg {
             Ok(Message::Text(text)) => {
-                println!("Received text message: {}", text);
+                println!("Received Text message: {}", text);
+                let response = crate::ocpp::ocpp_process_and_respond(text, &mut state)
+                    .await
+                    .expect("unable to process OCPP Call");
+                println!("Sending response: {}", response);
                 ws_stream
-                    .send(Message::Text("thank you, next!".into()))
+                    .send(Message::Text(response))
                     .await
                     .expect("Failed to send response to websocket Text message");
             }
             Ok(Message::Binary(data)) => {
-                println!("Received binary message with length: {}", data.len());
+                println!("Received Binary message with length: {}", data.len());
             }
             Ok(Message::Ping(data)) => {
                 println!("Received PING message with length: {}", data.len());
