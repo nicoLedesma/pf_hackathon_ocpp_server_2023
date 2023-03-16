@@ -1,7 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
-use tokio::net::{TcpListener, TcpStream};
-use tokio_native_tls::TlsStream;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
@@ -61,9 +61,12 @@ async fn accept_connection(
     Ok(())
 }
 
-async fn handle_connection(tls_stream: TlsStream<TcpStream>, peer_addr: SocketAddr) {
+async fn handle_connection<S>(stream: S, peer_addr: SocketAddr)
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     // Accept the WebSocket handshake
-    let mut ws_stream = accept_async(tls_stream)
+    let mut ws_stream = accept_async(stream)
         .await
         .expect("Failed to accept websocket connection");
 
