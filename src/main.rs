@@ -1,5 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::task;
@@ -22,18 +23,14 @@ async fn main() {
     let mut tasks = Vec::new();
 
     for &(protocol, address) in ADDRESSES {
-        let addr = address
-            .parse::<SocketAddr>()
-            .expect("Failed to parse address");
-
         let server_task = match protocol {
             Protocol::WS => {
-                println!("Will listen on: ws://{}", addr);
-                task::spawn(serve_unencrypted(&addr))
+                println!("Will listen on: ws://{}", address);
+                task::spawn(serve_unencrypted(address))
             }
             Protocol::WSS => {
-                println!("Will listen on: wss://{}", addr);
-                task::spawn(serve_encrypted_tls(&addr))
+                println!("Will listen on: wss://{}", address);
+                task::spawn(serve_encrypted_tls(&address))
             }
         };
 
@@ -46,11 +43,15 @@ async fn main() {
     }
 }
 
-async fn serve_unencrypted(addr: &SocketAddr) {
+async fn serve_unencrypted(addr: &str) {
     // Bind the TCP listener
-    let tcp_listener = TcpListener::bind(&addr)
-        .await
-        .expect("Failed to bind to address");
+    let tcp_listener = TcpListener::bind(
+        String::from_str(addr).unwrap()
+            .parse::<SocketAddr>()
+            .expect("Failed to parse socket address")
+    )
+    .await
+    .expect("Failed to bind to address");
 
     // Accept incoming connections
     loop {
@@ -60,7 +61,7 @@ async fn serve_unencrypted(addr: &SocketAddr) {
     }
 }
 
-async fn serve_encrypted_tls(addr: &SocketAddr) {
+async fn serve_encrypted_tls(addr: &str) {
     // Load the TLS certificate and private key from the Identity file
     let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der")
         .await
@@ -84,9 +85,13 @@ async fn serve_encrypted_tls(addr: &SocketAddr) {
     );
 
     // Bind the TCP listener
-    let tcp_listener = TcpListener::bind(&addr)
-        .await
-        .expect("Failed to bind to address");
+    let tcp_listener = TcpListener::bind(
+        String::from_str(addr).unwrap()
+            .parse::<SocketAddr>()
+            .expect("Failed to parse socket address")
+    )
+    .await
+    .expect("Failed to bind to address");
 
     // Accept incoming connections
     loop {
