@@ -24,12 +24,18 @@ async fn main() {
 
     // Create the TLS acceptor
     let tls_acceptor = tokio_native_tls::TlsAcceptor::from(
-        native_tls::TlsAcceptor::builder(identity).build().unwrap(),
+        native_tls::TlsAcceptor::builder(identity)
+            .build()
+            .expect("Failed to build a native_tls TLS acceptor object"),
     );
 
     // Bind the TCP listener
-    let addr = "127.0.0.1:8765".parse::<SocketAddr>().unwrap();
-    let tcp_listener = TcpListener::bind(&addr).await.unwrap();
+    let addr = "127.0.0.1:8765"
+        .parse::<SocketAddr>()
+        .expect("Failed to parse address");
+    let tcp_listener = TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind to address");
 
     println!("Listening on: {}", addr);
 
@@ -54,19 +60,28 @@ async fn accept_connection(
 
 async fn handle_connection(tls_stream: TlsStream<TcpStream>) {
     // Accept the WebSocket handshake
-    let mut ws_stream = accept_async(tls_stream).await.unwrap();
+    let mut ws_stream = accept_async(tls_stream)
+        .await
+        .expect("Failed to accept websocket connection");
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {
         match msg {
             Ok(Message::Text(text)) => {
                 println!("Received text message: {}", text);
+                ws_stream
+                    .send(Message::Text("thank you, next!".into()))
+                    .await
+                    .expect("Failed to send response to websocket Text message");
             }
             Ok(Message::Binary(data)) => {
                 println!("Received binary message with length: {}", data.len());
             }
             Ok(Message::Ping(data)) => {
-                ws_stream.send(Message::Pong(data)).await.unwrap();
+                ws_stream
+                    .send(Message::Pong(data))
+                    .await
+                    .expect("Failed to send PONG in response to PING websocket message");
             }
             Ok(Message::Pong(_)) => {}
             Ok(Message::Close(_)) => {
