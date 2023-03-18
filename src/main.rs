@@ -7,8 +7,10 @@ use tokio::task;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
+pub mod evse_state;
 pub mod normalize_input;
 pub mod ocpp;
+pub mod ocpp_handlers;
 
 #[derive(Clone, Copy)]
 enum Protocol {
@@ -64,7 +66,7 @@ async fn serve_unencrypted(addr: &str) {
     let tcp_listener = bind(addr).await.unwrap();
     loop {
         if let Err(e) = accept_unencrypted_connection(addr, &tcp_listener).await {
-            eprintln!("Error! {:?}", e);
+            eprintln!("ERROR! {:?}", e);
         }
     }
 }
@@ -116,7 +118,7 @@ async fn serve_encrypted_tls(addr: &str) {
     // Accept incoming connections
     loop {
         if let Err(e) = accept_tls_connection(addr, &tcp_listener, &tls_acceptor).await {
-            eprintln!("Error! {:?}", e);
+            eprintln!("ERROR! {:?}", e);
         }
     }
 }
@@ -157,7 +159,7 @@ where
     let mut ws_stream = accept_async(stream)
         .await
         .expect("Failed to accept websocket connection");
-    let mut state: crate::ocpp::EvseState = crate::ocpp::EvseState::Empty;
+    let mut state: crate::evse_state::EvseState = crate::evse_state::EvseState::Empty;
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {
@@ -165,7 +167,8 @@ where
         match msg {
             Ok(Message::Text(text)) => {
                 println!("Received Text message: {}", text);
-                let raw_response = crate::ocpp::ocpp_process_and_respond_str(text, &mut state);
+                let raw_response =
+                    crate::ocpp_handlers::ocpp_process_and_respond_str(text, &mut state);
 
                 match raw_response {
                     Ok(response) => {
@@ -176,7 +179,7 @@ where
                             .expect("Failed to send response to websocket Text message");
                     }
                     Err(err) => {
-                        eprintln!("Error parsing request and generating response: {}", err)
+                        eprintln!("ERROR parsing request and generating response: {}", err)
                     }
                 }
             }
@@ -204,7 +207,7 @@ where
             Err(tungstenite::Error::Protocol(
                 tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
             )) => {
-                eprintln!("Client closed without Websocket Closing Handshake");
+                eprintln!("ERROR Client closed without Websocket Closing Handshake");
                 return;
             }
             Err(err) => {
@@ -230,7 +233,7 @@ where
 
                 In general, it's essential to handle errors gracefully and only close the WebSocket connection when necessary. Always consider the specific requirements and constraints of your application when deciding how to handle errors.
                                 */
-                eprintln!("Error while processing websocket message: {}", err);
+                eprintln!("ERROR while processing websocket message: {}", err);
                 return;
             }
         }
