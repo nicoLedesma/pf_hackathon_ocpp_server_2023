@@ -3,7 +3,8 @@ use anyhow::Result;
 use rust_ocpp::v1_6::messages::boot_notification::{
     BootNotificationRequest, BootNotificationResponse,
 };
-use rust_ocpp::v1_6::messages::heart_beat::{HeartbeatResponse, HeartbeatRequest};
+use rust_ocpp::v1_6::messages::heart_beat::{HeartbeatRequest, HeartbeatResponse};
+use rust_ocpp::v1_6::messages::meter_values::{MeterValuesRequest, MeterValuesResponse};
 use rust_ocpp::v1_6::messages::status_notification::{
     StatusNotificationRequest, StatusNotificationResponse,
 };
@@ -115,6 +116,7 @@ pub enum Action {
     BootNotification,
     StatusNotification,
     Heartbeat,
+    MeterValues,
     // Add more actions here as needed
 }
 
@@ -124,6 +126,7 @@ pub enum CallPayload {
     BootNotification(BootNotificationRequest),
     StatusNotification(StatusNotificationRequest),
     Heartbeat(HeartbeatRequest),
+    MeterValues(MeterValuesRequest),
     // Add more payload types as needed
 }
 
@@ -133,6 +136,7 @@ pub enum CallResultPayload {
     BootNotification(BootNotificationResponse),
     StatusNotification(StatusNotificationResponse),
     Heartbeat(HeartbeatResponse),
+    MeterValues(MeterValuesResponse),
     // Add more payload types as needed
 }
 

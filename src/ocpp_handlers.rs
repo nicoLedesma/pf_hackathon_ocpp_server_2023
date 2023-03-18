@@ -6,6 +6,7 @@ use rust_ocpp::v1_6::messages::boot_notification::{
     BootNotificationRequest, BootNotificationResponse,
 };
 use rust_ocpp::v1_6::messages::heart_beat::{HeartbeatRequest, HeartbeatResponse};
+use rust_ocpp::v1_6::messages::meter_values::{MeterValuesRequest, MeterValuesResponse};
 use rust_ocpp::v1_6::messages::status_notification::{
     StatusNotificationRequest, StatusNotificationResponse,
 };
@@ -80,6 +81,18 @@ impl InfallibleMessageHandler for HeartbeatRequest {
     }
 }
 
+impl InfallibleMessageHandler for MeterValuesRequest {
+    type CallResult = MeterValuesResponse;
+
+    fn handle_message(self, evse_state: &mut EvseState) -> Self::CallResult {
+        // Handle the MeterValues message and return the response
+        println!("Handling MeterValues message: {:?}", self);
+
+        MeterValuesResponse {
+        }
+    }
+}
+
 fn ocpp_process_and_respond(
     message: OcppMessage,
     evse_state: &mut EvseState,
@@ -105,7 +118,11 @@ fn ocpp_process_and_respond(
             (Action::Heartbeat, CallPayload::Heartbeat(call)) => Ok(OcppMessage::CallResult {
                 unique_id,
                 payload: CallResultPayload::Heartbeat(call.handle_message(evse_state)),
-            }), // Add more actions and their corresponding handling here
+            }),
+            (Action::MeterValues, CallPayload::MeterValues(call)) => Ok(OcppMessage::CallResult {
+                unique_id,
+                payload: CallResultPayload::MeterValues(call.handle_message(evse_state)),
+            }),
             _ => Err(anyhow!(
                 "handle_ocpp_call function expects the Action and CallPayload to be same type"
             )),
