@@ -7,6 +7,7 @@ use tokio::task;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
+pub mod normalize_input;
 pub mod ocpp;
 
 #[derive(Clone, Copy)]
@@ -18,7 +19,7 @@ enum Protocol {
 const ADDRESSES: &[(Protocol, &str)] = &[
     (Protocol::WS, "127.0.0.1:8765"),
     (Protocol::WSS, "127.0.0.1:5678"),
-    (Protocol::WSS, "192.168.50.174:5678"),
+    (Protocol::WSS, "192.168.1.127:5678"),
 ];
 
 #[tokio::main]
@@ -77,12 +78,14 @@ async fn serve_encrypted_tls(addr: &str) {
     let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der")
         .await
         .expect("Failed to read the PKCS12 DER file");
-    let password = tokio::fs::read_to_string("identity_password.txt")
+    let password_raw = tokio::fs::read_to_string("identity_password.txt")
         .await
         .expect("Failed to read the identity password file");
+    let password = password_raw.trim_end();
     let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der)
         .expect("Failed to create Pkcs12 from DER");
     let pkcs12_der = pkcs12.to_der().expect("Failed to convert Pkcs12 to DER");
+    println!("{:?}", password);
     let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12_der, &password)
         .expect("Failed to create Identity from PKCS12 and key");
 
@@ -154,7 +157,7 @@ where
     let mut ws_stream = accept_async(stream)
         .await
         .expect("Failed to accept websocket connection");
-    let mut state:crate::ocpp::EvseStateOption = crate::ocpp::EvseStateOption::Empty;
+    let mut state: crate::ocpp::EvseState = crate::ocpp::EvseState::Empty;
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {
@@ -162,14 +165,20 @@ where
         match msg {
             Ok(Message::Text(text)) => {
                 println!("Received Text message: {}", text);
-                let response = crate::ocpp::ocpp_process_and_respond(text, &mut state)
-                    .await
-                    .expect("unable to process OCPP Call");
-                println!("Sending response: {}", response);
-                ws_stream
-                    .send(Message::Text(response))
-                    .await
-                    .expect("Failed to send response to websocket Text message");
+                let raw_response = crate::ocpp::ocpp_process_and_respond_str(text, &mut state);
+
+                match raw_response {
+                    Ok(response) => {
+                        println!("Sending response: {}", response);
+                        ws_stream
+                            .send(Message::Text(response))
+                            .await
+                            .expect("Failed to send response to websocket Text message");
+                    }
+                    Err(err) => {
+                        eprintln!("Error parsing request and generating response: {}", err)
+                    }
+                }
             }
             Ok(Message::Binary(data)) => {
                 println!("Received Binary message with length: {}", data.len());

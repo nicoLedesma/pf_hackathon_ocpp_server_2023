@@ -26,7 +26,7 @@ self-signed-cert.p12-generation:
 	# The SAN extension allows for more flexible and standardized identification of SSL/TLS certificate subjects, including support for domain names, IP addresses, and email addresses. By using the SAN extension, SSL/TLS certificates can be more easily interpreted and validated, which can improve security and reduce the risk of misidentification or attacks.
 	openssl req -new -passin file:"${PASSWORD_FILE}" -key key.pem \
 		-subj "/CN=localhost/O=PowerFlex/OU=Hackathon 2023" \
-		-addext "subjectAltName = DNS:localhost, IP:127.0.0.1, IP:192.168.50.174" \
+		-addext "subjectAltName = DNS:localhost, IP:127.0.0.1, IP:192.168.1.127" \
 		-out cert.csr
 
 	# Generate self-signed certificate
@@ -35,7 +35,7 @@ self-signed-cert.p12-generation:
 	# ChatGPT: Note that including email addresses in a certificate is considered deprecated and not recommended by some security standards, as email addresses can be changed more frequently than other identifying information such as domain names.
 	openssl x509 -req -passin file:"${PASSWORD_FILE}" -signkey key.pem -in cert.csr \
 		-days 365 \
-		-extensions san -copy_extensions copy \
+		-copy_extensions copy \
 		-out cert.pem
 
 	# Identity file containing private key and certificate
