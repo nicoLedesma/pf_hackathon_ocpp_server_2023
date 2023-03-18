@@ -88,7 +88,7 @@ impl Serialize for OcppMessage {
             }
             OcppMessage::CallResult { unique_id, payload } => {
                 let mut seq = serializer.serialize_seq(Some(3))?;
-                seq.serialize_element(&message_type_of(&self))?;
+                seq.serialize_element(&message_type_of(self))?;
                 seq.serialize_element(unique_id)?;
                 seq.serialize_element(payload)?;
                 seq.end()
@@ -100,7 +100,7 @@ impl Serialize for OcppMessage {
                 error_details,
             } => {
                 let mut seq = serializer.serialize_seq(Some(5))?;
-                seq.serialize_element(&message_type_of(&self))?;
+                seq.serialize_element(&message_type_of(self))?;
                 seq.serialize_element(unique_id)?;
                 seq.serialize_element(error_code)?;
                 seq.serialize_element(error_description)?;
@@ -181,9 +181,7 @@ pub fn parse_ocpp_message(message: String) -> Result<OcppMessage> {
 mod tests {
     use super::*;
     use crate::normalize_input::normalize_json_input_datetimes;
-    use chrono::{DateTime, Utc};
     use pretty_assertions::assert_eq;
-    use rust_ocpp::v1_6::types::{ChargePointErrorCode, ChargePointStatus};
 
     // A fixed UUID for unit testing
     const UNIQUE_ID: &str = "4b05fb33-6510-445e-b7c4-d3a6c611400e";
@@ -239,31 +237,38 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_serde_datetimes() {
-        let _datetime: DateTime<Utc> =
-            serde_json::from_str(r#""2023-03-17T22:42:50.008427Z""#).unwrap();
-        let _datetime: DateTime<Utc> = serde_json::from_str(r#""2023-03-17T22:42:50Z""#).unwrap();
-    }
+    #[cfg(test)]
+    mod test_serde_parsing {
+        use chrono::{DateTime, Utc};
+        use rust_ocpp::v1_6::types::{ChargePointErrorCode, ChargePointStatus};
+        #[test]
+        fn test_serde_datetimes() {
+            let _datetime: DateTime<Utc> =
+                serde_json::from_str(r#""2023-03-17T22:42:50.008427Z""#).unwrap();
+            let _datetime: DateTime<Utc> =
+                serde_json::from_str(r#""2023-03-17T22:42:50Z""#).unwrap();
+        }
 
-    #[test]
-    fn test_bad_serde_datetimes() {
-        let datetime: Result<DateTime<Utc>, serde_json::Error> =
-            serde_json::from_str(r#""2023-03-17T22:42""#);
-        assert!(datetime.is_err());
-        assert!(datetime.as_ref().unwrap_err().is_data());
-        assert!(datetime
-            .as_ref()
-            .unwrap_err()
-            .to_string()
-            .contains("premature end of input"));
-    }
+        #[test]
+        fn test_bad_serde_datetimes() {
+            let datetime: Result<DateTime<Utc>, serde_json::Error> =
+                serde_json::from_str(r#""2023-03-17T22:42""#);
+            assert!(datetime.is_err());
+            assert!(datetime.as_ref().unwrap_err().is_data());
+            assert!(datetime
+                .as_ref()
+                .unwrap_err()
+                .to_string()
+                .contains("premature end of input"));
+        }
 
-    #[test]
-    fn test_serde_common_constants() {
-        let _error_code: ChargePointErrorCode = serde_json::from_str(r#""NoError""#).unwrap();
-        let _error_code: ChargePointErrorCode = serde_json::from_str(r#""ResetFailure""#).unwrap();
-        let _status: ChargePointStatus = serde_json::from_str(r#""Available""#).unwrap();
-        let _status: ChargePointStatus = serde_json::from_str(r#""Charging""#).unwrap();
+        #[test]
+        fn test_serde_common_constants() {
+            let _error_code: ChargePointErrorCode = serde_json::from_str(r#""NoError""#).unwrap();
+            let _error_code: ChargePointErrorCode =
+                serde_json::from_str(r#""ResetFailure""#).unwrap();
+            let _status: ChargePointStatus = serde_json::from_str(r#""Available""#).unwrap();
+            let _status: ChargePointStatus = serde_json::from_str(r#""Charging""#).unwrap();
+        }
     }
 }

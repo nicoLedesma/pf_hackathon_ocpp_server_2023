@@ -31,7 +31,7 @@ impl InfallibleMessageHandler for BootNotificationRequest {
             interval: 300,
         };
 
-        *evse_state = EvseState::WebsocketConnected(EvseMetadata::new(
+        *evse_state = EvseState::WebsocketConnected(Box::new(EvseMetadata::new(
             Uuid::new_v4(),
             self.charge_point_vendor,
             self.charge_point_model,
@@ -39,7 +39,7 @@ impl InfallibleMessageHandler for BootNotificationRequest {
             self.firmware_version,
             self.iccid,
             self.imsi,
-        ));
+        )));
 
         response
     }
@@ -71,7 +71,7 @@ impl InfallibleMessageHandler for StatusNotificationRequest {
 impl InfallibleMessageHandler for HeartbeatRequest {
     type CallResult = HeartbeatResponse;
 
-    fn handle_message(self, evse_state: &mut EvseState) -> Self::CallResult {
+    fn handle_message(self, _evse_state: &mut EvseState) -> Self::CallResult {
         // Handle the Heartbeat message and return the response
         println!("Handling Heartbeat message: {:?}", self);
 
@@ -84,12 +84,11 @@ impl InfallibleMessageHandler for HeartbeatRequest {
 impl InfallibleMessageHandler for MeterValuesRequest {
     type CallResult = MeterValuesResponse;
 
-    fn handle_message(self, evse_state: &mut EvseState) -> Self::CallResult {
+    fn handle_message(self, _evse_state: &mut EvseState) -> Self::CallResult {
         // Handle the MeterValues message and return the response
         println!("Handling MeterValues message: {:?}", self);
 
-        MeterValuesResponse {
-        }
+        MeterValuesResponse {}
     }
 }
 
@@ -123,6 +122,8 @@ fn ocpp_process_and_respond(
                 unique_id,
                 payload: CallResultPayload::MeterValues(call.handle_message(evse_state)),
             }),
+            // TODO how to make the type checker warn when we add a new type?
+            // chatgpt: make a new struct that encodes the Action to Payload relationships
             _ => Err(anyhow!(
                 "handle_ocpp_call function expects the Action and CallPayload to be same type"
             )),

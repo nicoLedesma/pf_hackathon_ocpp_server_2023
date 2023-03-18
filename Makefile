@@ -1,6 +1,12 @@
 PASSWORD_FILE=password.txt
 IDENTITY_PASSWORD_FILE=identity_password.txt
 
+commitready:
+	cargo fmt
+	cargo clippy
+	cargo test
+	cargo test --release
+
 print-cert-contents:
 	openssl x509 -in cert.pem -noout -text
 

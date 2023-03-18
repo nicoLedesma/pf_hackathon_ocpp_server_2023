@@ -29,7 +29,7 @@ pub struct ConnectorInfo {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum EvseState {
-    WebsocketConnected(EvseMetadata),
+    WebsocketConnected(Box<EvseMetadata>),
     Empty,
 }
 

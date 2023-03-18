@@ -14,14 +14,14 @@ pub mod ocpp_handlers;
 
 #[derive(Clone, Copy)]
 enum Protocol {
-    WS,
-    WSS,
+    Ws,
+    Wss,
 }
 
 const ADDRESSES: &[(Protocol, &str)] = &[
-    (Protocol::WS, "127.0.0.1:8765"),
-    (Protocol::WSS, "127.0.0.1:5678"),
-    (Protocol::WSS, "192.168.1.127:5678"),
+    (Protocol::Ws, "127.0.0.1:8765"),
+    (Protocol::Wss, "127.0.0.1:5678"),
+    (Protocol::Wss, "192.168.1.127:5678"),
 ];
 
 #[tokio::main]
@@ -30,11 +30,11 @@ async fn main() {
 
     for &(protocol, address) in ADDRESSES {
         let server_task = match protocol {
-            Protocol::WS => {
+            Protocol::Ws => {
                 println!("Will listen on: ws://{}", address);
                 task::spawn(serve_unencrypted(address))
             }
-            Protocol::WSS => {
+            Protocol::Wss => {
                 println!("Will listen on: wss://{}", address);
                 task::spawn(serve_encrypted_tls(address))
             }
@@ -87,8 +87,7 @@ async fn serve_encrypted_tls(addr: &str) {
     let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der)
         .expect("Failed to create Pkcs12 from DER");
     let pkcs12_der = pkcs12.to_der().expect("Failed to convert Pkcs12 to DER");
-    println!("{:?}", password);
-    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12_der, &password)
+    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12_der, password)
         .expect("Failed to create Identity from PKCS12 and key");
 
     println!(
@@ -96,9 +95,9 @@ async fn serve_encrypted_tls(addr: &str) {
         addr
     );
     let openssl_pkcs12 =
-        openssl::pkcs12::Pkcs12::from_der(&pkcs12_der.as_slice()).expect("Failed to parse");
+        openssl::pkcs12::Pkcs12::from_der(pkcs12_der.as_slice()).expect("Failed to parse");
     let cert = openssl_pkcs12
-        .parse2(&password)
+        .parse2(password)
         .unwrap()
         .cert
         .expect("No cert found");

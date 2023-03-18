@@ -3,15 +3,12 @@ use serde_json::Value;
 
 pub fn fix_payload_timestamps(payload: &mut Value) -> Result<()> {
     if let Value::Object(ref mut obj) = payload {
-        match obj.get("timestamp") {
-            Some(ref value) => {
-                if let Some(s) = value.as_str() {
-                    if !s.ends_with('Z') && !s.ends_with('z') {
-                        obj.insert("timestamp".into(), Value::String(format!("{}Z", &s)));
-                    }
+        if let Some(value) = obj.get("timestamp") {
+            if let Some(s) = value.as_str() {
+                if !s.ends_with('Z') && !s.ends_with('z') {
+                    obj.insert("timestamp".into(), Value::String(format!("{}Z", &s)));
                 }
             }
-            None => {}
         }
     }
     Ok(())
