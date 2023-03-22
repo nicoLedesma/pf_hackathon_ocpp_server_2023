@@ -1,4 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
+use std::fs;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -12,6 +13,8 @@ pub mod normalize_input;
 pub mod ocpp;
 pub mod ocpp_handlers;
 
+const TLS_IDENTITY_PKCS12_DER_FILENAME: &str = "./letsencrypt_identity.pkcs12.der";
+
 #[derive(Clone, Copy)]
 enum Protocol {
     Ws,
@@ -19,13 +22,18 @@ enum Protocol {
 }
 
 const ADDRESSES: &[(Protocol, &str)] = &[
-    (Protocol::Ws, "127.0.0.1:8765"),
-    (Protocol::Wss, "127.0.0.1:5678"),
-    (Protocol::Wss, "192.168.1.127:5678"),
+    (Protocol::Wss, "0.0.0.0:5678"),
 ];
 
 #[tokio::main]
 async fn main() {
+    let paths = fs::read_dir("./").unwrap();
+
+    println!("hello world $ ls");
+    for path in paths {
+        println!("{}", path.unwrap().path().display())
+    }
+
     let mut tasks = Vec::new();
 
     for &(protocol, address) in ADDRESSES {
@@ -77,12 +85,11 @@ async fn serve_encrypted_tls(addr: &str) {
     let tcp_listener = bind(addr).await.unwrap();
 
     // Load the TLS certificate and private key from the Identity file
-    let server_identity_pkcs12_der = tokio::fs::read("identity.p12.der")
+    let server_identity_pkcs12_der = tokio::fs::read(TLS_IDENTITY_PKCS12_DER_FILENAME)
         .await
         .expect("Failed to read the PKCS12 DER file");
-    let password_raw = tokio::fs::read_to_string("identity_password.txt")
-        .await
-        .expect("Failed to read the identity password file");
+    let password_raw = std::env::var("TLS_IDENTITY_PASSWORD")
+        .expect("Failed to load env var TLS_IDENTITY_PASSWORD");
     let password = password_raw.trim_end();
     let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der)
         .expect("Failed to create Pkcs12 from DER");
@@ -108,11 +115,13 @@ async fn serve_encrypted_tls(addr: &str) {
     );
 
     // Create the TLS acceptor
-    let tls_acceptor = tokio_native_tls::TlsAcceptor::from(
-        native_tls::TlsAcceptor::builder(identity)
-            .build()
-            .expect("Failed to build a native_tls TLS acceptor object"),
-    );
+    let native_tls_acceptor = native_tls::TlsAcceptor::builder(identity)
+        // This should allow tls v1.3
+        // No progress yet https://github.com/sfackler/rust-native-tls/issues/140
+        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
+        .build()
+        .expect("Failed to build a native_tls TLS acceptor object");
+    let tls_acceptor = tokio_native_tls::TlsAcceptor::from(native_tls_acceptor);
 
     // Accept incoming connections
     loop {

@@ -1,3 +1,5 @@
+*letsencrypt*/
+
 *password*.txt
 *.pem
 *.csr

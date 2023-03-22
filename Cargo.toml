@@ -1,5 +1,5 @@
 [package]
-name = "pf_hackathon_ocpp_server_2023"
+name = "ocpp_server"
 version = "0.1.0"
 edition = "2021"
 
