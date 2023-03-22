@@ -5,6 +5,8 @@ use std::str::FromStr;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 use tokio::task;
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
 
@@ -21,15 +23,17 @@ enum Protocol {
     Wss,
 }
 
-const ADDRESSES: &[(Protocol, &str)] = &[
-    (Protocol::Wss, "0.0.0.0:5678"),
-];
+const ADDRESSES: &[(Protocol, &str)] = &[(Protocol::Wss, "0.0.0.0:5678")];
 
 #[tokio::main]
 async fn main() {
     let paths = fs::read_dir("./").unwrap();
 
-    println!("hello world $ ls");
+    println!(
+        "$ pwd\n{}",
+        std::env::current_dir().unwrap().to_string_lossy()
+    );
+    println!("Hello, world $ ls");
     for path in paths {
         println!("{}", path.unwrap().path().display())
     }
@@ -91,37 +95,37 @@ async fn serve_encrypted_tls(addr: &str) {
     let password_raw = std::env::var("TLS_IDENTITY_PASSWORD")
         .expect("Failed to load env var TLS_IDENTITY_PASSWORD");
     let password = password_raw.trim_end();
-    let pkcs12 = openssl::pkcs12::Pkcs12::from_der(&server_identity_pkcs12_der)
-        .expect("Failed to create Pkcs12 from DER");
-    let pkcs12_der = pkcs12.to_der().expect("Failed to convert Pkcs12 to DER");
-    let identity = tokio_native_tls::native_tls::Identity::from_pkcs12(&pkcs12_der, password)
-        .expect("Failed to create Identity from PKCS12 and key");
 
     println!(
-        "Loaded TLS identity (cert and private key) for address {}",
-        addr
-    );
-    let openssl_pkcs12 =
-        openssl::pkcs12::Pkcs12::from_der(pkcs12_der.as_slice()).expect("Failed to parse");
-    let cert = openssl_pkcs12
-        .parse2(password)
-        .unwrap()
-        .cert
-        .expect("No cert found");
-    println!(
-        "Loaded cert with Subject alt names (SNA): {:?}",
-        cert.subject_alt_names()
-            .expect("Cert must have SNA field. CN field is deprecated.")
+        "Loaded TLS cert and private key files for address {}",
+        &addr,
     );
 
-    // Create the TLS acceptor
-    let native_tls_acceptor = native_tls::TlsAcceptor::builder(identity)
-        // This should allow tls v1.3
-        // No progress yet https://github.com/sfackler/rust-native-tls/issues/140
-        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
-        .build()
-        .expect("Failed to build a native_tls TLS acceptor object");
-    let tls_acceptor = tokio_native_tls::TlsAcceptor::from(native_tls_acceptor);
+    let pkcs12 = tokio_rustls::rustls::internal::pemfile::pkcs12::decode(
+        &server_identity_pkcs12_der,
+        &password,
+    )
+    .expect("Unable to construct PKCS12 object with rustls");
+    let certs = pkcs12
+        .certs
+        .iter()
+        .map(|cert| tokio_rustls::rustls::Certificate(cert.clone()))
+        .collect::<Vec<_>>();
+    let mut keys = pkcs12
+        .pkey
+        .map(|pkey| vec![tokio_rustls::rustls::PrivateKey(pkey)])
+        .unwrap_or_else(|| vec![]);
+    let config = ServerConfig::builder()
+        .with_safe_default_cipher_suites()
+        .with_safe_default_kx_groups()
+        .with_protocol_versions(&[&tokio_rustls::rustls::version::TLS13])
+        .expect("Unable to set TLS settings")
+        .with_no_client_auth()
+        .with_single_cert(certs, keys.remove(0))
+        .expect("Unable to build rustls ServerConfig");
+    let tls_acceptor = TlsAcceptor::from(std::sync::Arc::new(config));
+
+    // PRINT TLS HOSTNAME let sni_hostname = tls_acceptor.sni_hostname();
 
     // Accept incoming connections
     loop {
@@ -134,12 +138,9 @@ async fn serve_encrypted_tls(addr: &str) {
 async fn accept_tls_connection(
     addr: &str,
     tcp_listener: &TcpListener,
-    tls_acceptor: &tokio_native_tls::TlsAcceptor,
+    tls_acceptor: &TlsAcceptor,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (tcp_stream, _) = tcp_listener.accept().await?;
-    let peer_addr = tcp_stream
-        .peer_addr()
-        .expect("Unable to find new connection's incoming address");
+    let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
     println!("Connection to {} received from {}", addr, peer_addr);
     let tls_stream = tls_acceptor.accept(tcp_stream).await?;
     tokio::spawn(handle_connection(tls_stream, peer_addr));
