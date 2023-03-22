@@ -1,3 +1,7 @@
+# TODO add kubernetes resource limits to this container
+# TODO run image scanner on this image in our CI/CD
+# DONE https://bobcares.com/blog/secure-a-docker-container-with-distroless-images/
+
 ####################################################################################################
 ### STAGE 1: Build Container: build crate and dependencies
 ####################################################################################################

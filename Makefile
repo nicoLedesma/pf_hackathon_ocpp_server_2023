@@ -13,8 +13,19 @@ SELFSIGNED_IDENTITY_PKCS12_DER=selfsigned_identity.pkcs12.der
 commitready:
 	cargo fmt
 	cargo clippy
+	make security-scan
 	cargo test
 	cargo test --release
+
+find-largest-functions:
+	# cargo install cargo-bloat
+	# Reduce binary size more? https://github.com/TimonPost/cargo-unused-features
+	cargo bloat --release -n 10
+
+security-scan:
+	# cargo install cargo-outdated cargo-audit
+	cargo audit
+	cargo outdated --root-deps-only
 
 has-long-password:
 	@if [ "$(shell wc -c "${IDENTITY_PASSWORD_FILE}" | cut -f1 -d" ")" -lt 64 ]; then \
