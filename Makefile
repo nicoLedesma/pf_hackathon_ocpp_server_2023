@@ -41,7 +41,8 @@ docker-run: has-long-password docker-build
 	-echo Running on port ${WSS_PORT}
 	-docker run \
 	-e TLS_IDENTITY_PASSWORD="$(shell cat "${IDENTITY_PASSWORD_FILE}")" \
-	-v ./letsencrypt_identity.pkcs12.der:/usr/src/app/letsencrypt_identity.pkcs12.der
+	-e RUST_BACKTRACE="${RUST_BACKTRACE}" \
+	-v ./letsencrypt_identity.pkcs12.der:/home/nonroot/letsencrypt_identity.pkcs12.der \
 	-i \
 	-p ${WSS_PORT}:${WSS_PORT} \
 	-t ocpp_server
