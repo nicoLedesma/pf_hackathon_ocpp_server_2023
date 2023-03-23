@@ -29,6 +29,9 @@ RUN cargo build --release
 # https://www.redhat.com/en/blog/why-distroless-containers-arent-security-solution-you-think-they-are
 FROM gcr.io/distroless/cc:nonroot
 
+# Default value is written here for clarity.
+WORKDIR /home/nonroot
+
 # Copy binary and set entrypoint.
 COPY --from=builder /app/target/release/ocpp_server ocpp_server
 CMD ["./ocpp_server"]
