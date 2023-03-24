@@ -7,6 +7,7 @@
 // TODO NATS API to send OCPP messages
 use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
+use std::os::unix::prelude::PermissionsExt;
 use std::str::FromStr;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
@@ -23,6 +24,7 @@ pub mod normalize_input;
 pub mod ocpp;
 pub mod ocpp_handlers;
 
+const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 const TLS_CERTIFICATE_PEM_FILENAME: &str = "./certificate.pem";
 const TLS_PRIVATE_KEY_PEM_FILENAME: &str = "./private_key.pem";
 
@@ -40,7 +42,15 @@ const ADDRESSES: &[(Protocol, &str)] = &[
 
 #[tokio::main]
 async fn main() {
-    println!("Hello, world!");
+    let current_exe = std::env::current_exe().expect("Current exe's path not found");
+    let my_metadata = std::fs::metadata(&current_exe).expect("Unable to read exe's metadata");
+    println!(
+        "Hello, world! Executing {} {} bytes ({:0o}), version {}",
+        current_exe.to_string_lossy(),
+        my_metadata.len(),
+        my_metadata.permissions().mode(),
+        CARGO_PKG_VERSION,
+    );
 
     let mut tasks = Vec::new();
 
@@ -94,6 +104,7 @@ async fn serve_encrypted_tls(addr: &str) {
     // TODO how to get rid of this unwrap? I'm getting future returned by `serve_encrypted_tls` is not `Send`
     let tcp_listener = bind(addr).await.unwrap();
 
+    // TODO print and validate permissions. private key should be 0o600 perms
     let tls_certificate_pem = tokio::fs::read(TLS_CERTIFICATE_PEM_FILENAME)
         .await
         .expect("Failed to read the TLS certificate file");
@@ -179,7 +190,12 @@ async fn accept_tls_connection(
     tls_acceptor: &TlsAcceptor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
-    println!("Connection to {} received from {}", addr, peer_addr);
+    println!(
+        "{} Connection to {} received from {}",
+        chrono::Utc::now(),
+        addr,
+        peer_addr
+    );
     let mut tls_stream = tls_acceptor.accept(tcp_stream).await?;
 
     use tokio::io::AsyncReadExt;
@@ -195,7 +211,7 @@ async fn accept_tls_connection(
     }
 
     //tokio::spawn(handle_connection(tls_stream, peer_addr));
-    Ok(())
+    // Ok(())
 }
 
 async fn accept_unencrypted_connection(
