@@ -7,6 +7,7 @@
 FROM rust:1.68-alpine as builder
 WORKDIR /usr/src/app
 
+# For compressing executables
 RUN apk add upx
 
 # Build application

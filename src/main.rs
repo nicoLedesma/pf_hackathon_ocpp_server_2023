@@ -8,13 +8,16 @@ use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tokio_tungstenite::accept_async;
 use tungstenite::Message;
+use x509_parser::pem::Pem;
+use x509_parser::x509::X509Version;
 
 pub mod evse_state;
 pub mod normalize_input;
 pub mod ocpp;
 pub mod ocpp_handlers;
 
-const TLS_IDENTITY_PKCS12_DER_FILENAME: &str = "./letsencrypt_identity.pkcs12.der";
+const TLS_CERTIFICATE_PEM_FILENAME: &str = "./certificate.pem";
+const TLS_PRIVATE_KEY_PEM_FILENAME: &str = "./private_key.pem";
 
 #[derive(Clone, Copy)]
 enum Protocol {
@@ -29,6 +32,8 @@ const ADDRESSES: &[(Protocol, &str)] = &[
 
 #[tokio::main]
 async fn main() {
+    println!("Hello, world!");
+
     let mut tasks = Vec::new();
 
     for &(protocol, address) in ADDRESSES {
@@ -81,61 +86,58 @@ async fn serve_encrypted_tls(addr: &str) {
     // TODO how to get rid of this unwrap? I'm getting future returned by `serve_encrypted_tls` is not `Send`
     let tcp_listener = bind(addr).await.unwrap();
 
-    // Load the TLS certificate and private key from the Identity file
-    let server_identity_pkcs12_der = tokio::fs::read(TLS_IDENTITY_PKCS12_DER_FILENAME)
+    let tls_certificate_pem = tokio::fs::read(TLS_CERTIFICATE_PEM_FILENAME)
         .await
-        .expect("Failed to read the PKCS12 DER file");
-    let password_raw = std::env::var("TLS_IDENTITY_PASSWORD")
-        .expect("Failed to load env var TLS_IDENTITY_PASSWORD");
-    let password = password_raw.trim_end();
+        .expect("Failed to read the TLS certificate file");
+    let tls_private_key_pem = tokio::fs::read(TLS_PRIVATE_KEY_PEM_FILENAME)
+        .await
+        .expect("Failed to read the TLS password file");
 
-    println!(
-        "Loaded data for TLS cert and private key files for address {}",
-        &addr,
-    );
+    // Parse and validate certificate
+    // TODO verify certificate expiration date and other metadata
+    let mut pem_contains_at_least_one_cert = false;
+    for (index, pem) in Pem::iter_from_buffer(&tls_certificate_pem).enumerate() {
+        pem_contains_at_least_one_cert = true;
+        let pem = pem.expect("Reading next PEM block failed");
+        let x509 = pem.parse_x509().expect(&format!(
+            "X.509: decoding DER failed of PEM cert index {}",
+            index
+        ));
+        assert_eq!(x509.tbs_certificate.version, X509Version::V3);
+        if index == 0 {
+            let san = x509
+                .subject_alternative_name()
+                .expect(
+                    "Expect Subject Alternative Name field in the end-entity certificate (index 0)",
+                )
+                .expect("um");
+            println!("Loaded cert with Subject alt names (SNA): {:?}", san.value);
+        }
+    }
+    assert!(pem_contains_at_least_one_cert);
 
-    let openssl_pkcs12 = openssl::pkcs12::Pkcs12::from_der(server_identity_pkcs12_der.as_slice())
-        .expect("Failed to parse identity file")
-        .parse2(password)
-        .expect("Failed to parse identity file with given password");
-    let cert = openssl_pkcs12
-        .cert
-        .expect("No TLS certificate found in identity file");
-    let ca_cert_chain: Vec<_> = openssl_pkcs12
-        .ca
-        .map(|stack| stack.into_iter().collect())
-        .expect("At least 1 CA cert is needed");
-
-    // TODO check validity of cert, etc
-    let private_key = openssl_pkcs12
-        .pkey
-        .expect("No TLS private key found in identity file");
-
-    println!(
-        "Loaded cert with Subject alt names (SNA): {:?}",
-        &cert.subject_alt_names().expect("Cert must have SNA field.")
-    );
-
-    // Rustls has no support for pkcs12
-    let mut cert_chain = ca_cert_chain.clone();
-    cert_chain.insert(0, cert);
-    let an_entire_pem: Vec<_> = cert_chain
+    // Load certificate without validation
+    let der_encoded_certificate_chain = rustls_pemfile::certs(&mut tls_certificate_pem.as_ref())
+        .expect("Unable to convert certificate PEM into DER")
         .into_iter()
-        .map(|c| c.to_pem().unwrap())
+        .map(|bytes| tokio_rustls::rustls::Certificate(bytes))
         .collect();
 
-    let der_encoded_cert_chain: Vec<tokio_rustls::rustls::Certificate> =
-        rustls_pemfile::certs(&mut an_entire_pem.concat().as_ref())
-            .expect("Parse DER")
-            .into_iter()
-            .map(|c| tokio_rustls::rustls::Certificate(c))
-            .collect();
-
-    let der_encoded_pkey = tokio_rustls::rustls::PrivateKey(
-        private_key
-            .private_key_to_der()
-            .expect("Unable to encode private key as DER"),
-    );
+    // Load private key without validation
+    // TODO verify this private key corresponds to the certificate
+    let der_encoded_private_key_chain =
+        match rustls_pemfile::read_one(&mut tls_private_key_pem.as_ref())
+            .expect("No PEM section found in the given private key")
+            .expect("No valid item found in PEM")
+        {
+            rustls_pemfile::Item::RSAKey(contents)
+            | rustls_pemfile::Item::PKCS8Key(contents)
+            | rustls_pemfile::Item::ECKey(contents) => {
+                Some(tokio_rustls::rustls::PrivateKey(contents))
+            }
+            _ => None,
+        }
+        .expect("Unable to find a private key in the given PEM");
 
     let config = ServerConfig::builder()
         .with_safe_default_cipher_suites()
@@ -143,11 +145,11 @@ async fn serve_encrypted_tls(addr: &str) {
         .with_protocol_versions(&[&tokio_rustls::rustls::version::TLS13])
         .expect("Unable to set TLS settings")
         .with_no_client_auth()
-        .with_single_cert(der_encoded_cert_chain, der_encoded_pkey)
+        .with_single_cert(der_encoded_certificate_chain, der_encoded_private_key_chain)
         .expect("Unable to build rustls ServerConfig");
     let tls_acceptor = TlsAcceptor::from(std::sync::Arc::new(config));
 
-    // PRINT TLS HOSTNAME let sni_hostname = tls_acceptor.sni_hostname();
+    // TODO PRINT TLS HOSTNAME let sni_hostname = tls_acceptor.sni_hostname();
 
     // Accept incoming connections
     loop {
