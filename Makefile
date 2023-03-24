@@ -65,14 +65,16 @@ generate-empty-pem:
 
 docker-run-dev: copy-letsencrypt-pem docker-build-dev
 	@echo Do not print or store contents of TLS_PRIVATE_KEY_PEM unsecured
-	docker run --init -it \
-	  -e RUST_BACKTRACE="${RUST_BACKTRACE}" \
+	docker run \
+		-it \
+		--init \
+		-e RUST_BACKTRACE="${RUST_BACKTRACE}" \
 		-v "${TLS_CERTIFICATE_PEM}":/home/nonroot/certificate.pem \
 		-v "${TLS_PRIVATE_KEY_PEM}":/home/nonroot/private_key.pem \
-	  -p ${WSS_PORT}:${WSS_PORT} \
-	  -p ${WSS_PORT2}:${WSS_PORT2} \
-	  -p 8765:8765 \
-	  -t ocpp_server_dev
+		-p ${WSS_PORT}:${WSS_PORT} \
+		-p ${WSS_PORT2}:${WSS_PORT2} \
+		-p 8765:8765 \
+		-t ocpp_server_dev
 
 print-cert-contents:
 	openssl x509 -in ${TLS_CERTIFICATE_PEM} -noout -text
