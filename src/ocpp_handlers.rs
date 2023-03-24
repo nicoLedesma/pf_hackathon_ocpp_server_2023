@@ -124,8 +124,10 @@ fn ocpp_process_and_respond(
             }),
             // TODO how to make the type checker warn when we add a new type?
             // chatgpt: make a new struct that encodes the Action to Payload relationships
-            _ => Err(anyhow!(
-                "handle_ocpp_call function expects the Action and CallPayload to be same type"
+            (action, payload) => Err(anyhow!(
+                "handle_ocpp_call function expects the Action {:?} and CallPayload {:?} to be same type",
+                action,
+                payload,
             )),
         },
         _ => Err(anyhow!("handle_ocpp_call function expects a Call message")),

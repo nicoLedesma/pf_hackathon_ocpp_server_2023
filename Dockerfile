@@ -1,26 +1,18 @@
 # TODO add kubernetes resource limits to this container
 # TODO run image scanner on this image in our CI/CD
-# DONE https://bobcares.com/blog/secure-a-docker-container-with-distroless-images/
 
 ####################################################################################################
 ### STAGE 1: Build Container: build crate and dependencies
 ####################################################################################################
-FROM lukemathwalker/cargo-chef:latest-rust-1.68 AS chef
-WORKDIR /app
+FROM rust:1.68-alpine as builder
+WORKDIR /usr/src/app
 
-FROM chef AS planner
-COPY . .
-# Cache dependencies
-RUN cargo chef prepare --recipe-path recipe.json
-
-FROM chef AS builder
-COPY --from=planner /app/recipe.json recipe.json
-# Build dependencies - this is the caching Docker layer!
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN apk add upx
 
 # Build application
 COPY . .
 RUN cargo build --release
+RUN upx /app/target/release/ocpp_server
 
 ####################################################################################################
 ### STAGE 2: Execution Container: copy the static binary from build container and run

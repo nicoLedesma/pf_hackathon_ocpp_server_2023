@@ -36,6 +36,20 @@ has-long-password:
 docker-build:
 	docker build -t ocpp_server .
 
+docker-build-dev:
+	cargo build
+	docker build -t ocpp_server_dev . -f Dockerfile.dev
+
+docker-run-dev: has-long-password docker-build-dev
+	# DO NOT PRINT CONTENTS OF PASSWORD TO SCREEN!
+	-echo Running on port ${WSS_PORT}
+	-docker run \
+	-e TLS_IDENTITY_PASSWORD="$(shell cat "${IDENTITY_PASSWORD_FILE}")" \
+	-e RUST_BACKTRACE="${RUST_BACKTRACE}" \
+	-i \
+	-p 8765:8765 \
+	-t ocpp_server_dev
+
 docker-run: has-long-password docker-build
 	# DO NOT PRINT CONTENTS OF PASSWORD TO SCREEN!
 	-echo Running on port ${WSS_PORT}
@@ -45,6 +59,7 @@ docker-run: has-long-password docker-build
 	-v ./letsencrypt_identity.pkcs12.der:/home/nonroot/letsencrypt_identity.pkcs12.der \
 	-i \
 	-p ${WSS_PORT}:${WSS_PORT} \
+	-p 8765:8765 \
 	-t ocpp_server
 
 print-cert-contents:
@@ -57,8 +72,8 @@ print-letsencrypt-cert-contents:
 	openssl x509 -in ${LETSENCRYPT_CERT_PEM} -noout -text
 
 validate-server-tls:
-	# Do you support v1.3?
-	openssl s_client -connect ${LETSENCRYPT_DOMAIN_NAME}:${WSS_PORT} -tls1_3
+	# Verify the server supports TLS v1.3 and that it has the right certificate chain
+	openssl s_client -connect ${LETSENCRYPT_DOMAIN_NAME}:${WSS_PORT} -tls1_3 -showcerts
 
 run_tiny_static_http_server:
 	docker build -t tiny_static_http_server .

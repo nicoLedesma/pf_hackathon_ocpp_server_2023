@@ -1,5 +1,4 @@
 use futures_util::{SinkExt, StreamExt};
-use std::fs;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -23,21 +22,13 @@ enum Protocol {
     Wss,
 }
 
-const ADDRESSES: &[(Protocol, &str)] = &[(Protocol::Wss, "0.0.0.0:5678")];
+const ADDRESSES: &[(Protocol, &str)] = &[
+    (Protocol::Ws, "0.0.0.0:8765"),
+    (Protocol::Wss, "0.0.0.0:5678"),
+];
 
 #[tokio::main]
 async fn main() {
-    let paths = fs::read_dir("./").unwrap();
-
-    println!(
-        "$ pwd\n{}",
-        std::env::current_dir().unwrap().to_string_lossy()
-    );
-    println!("Hello, world $ ls");
-    for path in paths {
-        println!("{}", path.unwrap().path().display())
-    }
-
     let mut tasks = Vec::new();
 
     for &(protocol, address) in ADDRESSES {
@@ -57,7 +48,9 @@ async fn main() {
 
     // Wait for all tasks to complete
     for task in tasks {
-        task.await.unwrap();
+        if let Err(e) = task.await {
+            eprintln!("Task failed! {}", e);
+        }
     }
 }
 
@@ -70,7 +63,7 @@ async fn bind(addr: &str) -> Result<TcpListener, Box<dyn std::error::Error>> {
             .expect("Failed to parse socket address"),
     )
     .await
-    .expect("Failed to bind to address"))
+    .expect(&format!("Failed to bind to address {}", &addr)))
 }
 
 async fn serve_unencrypted(addr: &str) {
@@ -97,31 +90,60 @@ async fn serve_encrypted_tls(addr: &str) {
     let password = password_raw.trim_end();
 
     println!(
-        "Loaded TLS cert and private key files for address {}",
+        "Loaded data for TLS cert and private key files for address {}",
         &addr,
     );
 
-    let pkcs12 = tokio_rustls::rustls::internal::pemfile::pkcs12::decode(
-        &server_identity_pkcs12_der,
-        &password,
-    )
-    .expect("Unable to construct PKCS12 object with rustls");
-    let certs = pkcs12
-        .certs
-        .iter()
-        .map(|cert| tokio_rustls::rustls::Certificate(cert.clone()))
-        .collect::<Vec<_>>();
-    let mut keys = pkcs12
+    let openssl_pkcs12 = openssl::pkcs12::Pkcs12::from_der(server_identity_pkcs12_der.as_slice())
+        .expect("Failed to parse identity file")
+        .parse2(password)
+        .expect("Failed to parse identity file with given password");
+    let cert = openssl_pkcs12
+        .cert
+        .expect("No TLS certificate found in identity file");
+    let ca_cert_chain: Vec<_> = openssl_pkcs12
+        .ca
+        .map(|stack| stack.into_iter().collect())
+        .expect("At least 1 CA cert is needed");
+
+    // TODO check validity of cert, etc
+    let private_key = openssl_pkcs12
         .pkey
-        .map(|pkey| vec![tokio_rustls::rustls::PrivateKey(pkey)])
-        .unwrap_or_else(|| vec![]);
+        .expect("No TLS private key found in identity file");
+
+    println!(
+        "Loaded cert with Subject alt names (SNA): {:?}",
+        &cert.subject_alt_names().expect("Cert must have SNA field.")
+    );
+
+    // Rustls has no support for pkcs12
+    let mut cert_chain = ca_cert_chain.clone();
+    cert_chain.insert(0, cert);
+    let an_entire_pem: Vec<_> = cert_chain
+        .into_iter()
+        .map(|c| c.to_pem().unwrap())
+        .collect();
+
+    let der_encoded_cert_chain: Vec<tokio_rustls::rustls::Certificate> =
+        rustls_pemfile::certs(&mut an_entire_pem.concat().as_ref())
+            .expect("Parse DER")
+            .into_iter()
+            .map(|c| tokio_rustls::rustls::Certificate(c))
+            .collect();
+
+    let der_encoded_pkey = tokio_rustls::rustls::PrivateKey(
+        private_key
+            .private_key_to_der()
+            .expect("Unable to encode private key as DER"),
+    );
+
     let config = ServerConfig::builder()
         .with_safe_default_cipher_suites()
         .with_safe_default_kx_groups()
         .with_protocol_versions(&[&tokio_rustls::rustls::version::TLS13])
         .expect("Unable to set TLS settings")
         .with_no_client_auth()
-        .with_single_cert(certs, keys.remove(0))
+        .with_single_cert(der_encoded_cert_chain, der_encoded_pkey)
         .expect("Unable to build rustls ServerConfig");
     let tls_acceptor = TlsAcceptor::from(std::sync::Arc::new(config));
 
@@ -151,10 +173,7 @@ async fn accept_unencrypted_connection(
     addr: &str,
     tcp_listener: &TcpListener,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (tcp_stream, _) = tcp_listener.accept().await?;
-    let peer_addr = tcp_stream
-        .peer_addr()
-        .expect("Unable to find new connection's incoming address");
+    let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
     println!("Connection to {} received from {}", addr, peer_addr);
     tokio::spawn(handle_connection(tcp_stream, peer_addr));
     Ok(())
