@@ -1,19 +1,23 @@
 FROM rust:1.68-slim as builder
 
+RUN apt-get update -y && apt-get install -y upx
+
 # Download and compile dependencies only
 # Use cache mount to save the huge cargo registry and target/ directories
 # https://gist.github.com/noelbundick/6922d26667616e2ba5c3aff59f0824cd
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main(){}" > src/main.rs
-RUN --mount=type=cache,target=/app/target --mount=type=cache,target=/usr/local/cargo/registry cargo build
+RUN --mount=type=cache,target=/app/target --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
 
 # Copy source code and build
 # Use cache mount to save the huge cargo registry and target/ directories
 COPY src src
 # Force recompile
 RUN touch src/main.rs
-RUN --mount=type=cache,target=/app/target --mount=type=cache,target=/usr/local/cargo/registry cargo build
-RUN --mount=type=cache,target=/app/target --mount=type=cache,target=/usr/local/cargo/registry cp ./target/debug/ocpp_server /app/ocpp_server
+RUN --mount=type=cache,target=/app/target --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+RUN --mount=type=cache,target=/app/target --mount=type=cache,target=/usr/local/cargo/registry cp ./target/release/ocpp_server /app/ocpp_server
+
+RUN upx /app/ocpp_server
 
 # Read regarding this base image's security flaws:
 # https://www.redhat.com/en/blog/why-distroless-containers-arent-security-solution-you-think-they-are

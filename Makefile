@@ -1,4 +1,5 @@
 WSS_PORT:=5678
+WSS_PORT2:=5679
 PASSWORD_FILE:=password.txt
 IDENTITY_PASSWORD_FILE:=identity_password.txt
 LETSENCRYPT_DIR:=./letsencrypt_certs_private
@@ -63,13 +64,13 @@ generate-empty-pem:
 	touch ${TLS_PRIVATE_KEY_PEM}
 
 docker-run-dev: copy-letsencrypt-pem docker-build-dev
-	@echo Running on port ${WSS_PORT}
 	@echo Do not print or store contents of TLS_PRIVATE_KEY_PEM unsecured
 	docker run --init -it \
 	  -e RUST_BACKTRACE="${RUST_BACKTRACE}" \
 		-v "${TLS_CERTIFICATE_PEM}":/home/nonroot/certificate.pem \
 		-v "${TLS_PRIVATE_KEY_PEM}":/home/nonroot/private_key.pem \
 	  -p ${WSS_PORT}:${WSS_PORT} \
+	  -p ${WSS_PORT2}:${WSS_PORT2} \
 	  -p 8765:8765 \
 	  -t ocpp_server_dev
 
