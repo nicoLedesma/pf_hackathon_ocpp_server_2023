@@ -37,7 +37,6 @@ enum Protocol {
 const ADDRESSES: &[(Protocol, &str)] = &[
     (Protocol::Ws, "0.0.0.0:8765"),
     (Protocol::Wss, "0.0.0.0:5678"),
-    (Protocol::Wss, "0.0.0.0:5679"),
 ];
 
 #[tokio::main]
@@ -161,13 +160,10 @@ async fn serve_encrypted_tls(addr: &str) {
     let config = ServerConfig::builder()
         .with_safe_default_cipher_suites()
         .with_safe_default_kx_groups()
-        /*
         .with_protocol_versions(&[
-            &tokio_rustls::rustls::version::TLS13,
+            // &tokio_rustls::rustls::version::TLS13,
             &tokio_rustls::rustls::version::TLS12,
         ])
-        */
-        .with_safe_default_protocol_versions()
         .expect("Unable to set TLS settings")
         .with_no_client_auth()
         .with_single_cert(der_encoded_certificate_chain, der_encoded_private_key_chain)
@@ -191,27 +187,28 @@ async fn accept_tls_connection(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
     println!(
-        "{} Connection to {} received from {}",
+        "{}: Secured TLS Connection to {} received from {}",
         chrono::Utc::now(),
         addr,
         peer_addr
     );
-    let mut tls_stream = tls_acceptor.accept(tcp_stream).await?;
 
-    use tokio::io::AsyncReadExt;
-    loop {
-        let mut buffer = [0; 256];
+    // let mut tls_stream = tls_acceptor.accept(tcp_stream).await?;
+    //use tokio::io::AsyncReadExt;
+    //loop {
+    //    let mut buffer = [0; 256];
 
-        let n = tls_stream.read(&mut buffer).await.unwrap();
+    //    let n = tls_stream.read(&mut buffer).await.unwrap();
 
-        if n == 0 {
-            continue;
-        }
-        println!("The bytes: {:?}", &buffer[..n]);
-    }
+    //    if n == 0 {
+    //        continue;
+    //    }
+    //    println!("The bytes: {:?}", &buffer[..n]);
+    //}
 
-    //tokio::spawn(handle_connection(tls_stream, peer_addr));
-    // Ok(())
+    let tls_stream = tls_acceptor.accept(tcp_stream).await?;
+    tokio::spawn(handle_connection(tls_stream, peer_addr));
+    Ok(())
 }
 
 async fn accept_unencrypted_connection(
@@ -219,7 +216,12 @@ async fn accept_unencrypted_connection(
     tcp_listener: &TcpListener,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
-    println!("Connection to {} received from {}", addr, peer_addr);
+    println!(
+        "{}: Unencrypted Connection to {} received from {}",
+        chrono::Utc::now(),
+        addr,
+        peer_addr
+    );
     tokio::spawn(handle_connection(tcp_stream, peer_addr));
     Ok(())
 }

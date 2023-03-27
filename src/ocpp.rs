@@ -125,8 +125,10 @@ pub enum Action {
 pub enum CallPayload {
     BootNotification(BootNotificationRequest),
     StatusNotification(StatusNotificationRequest),
-    Heartbeat(HeartbeatRequest),
     MeterValues(MeterValuesRequest),
+    // Heartbeats should go last since it's an empty struct and can cause problems with serde's untagged
+    // parser
+    Heartbeat(HeartbeatRequest),
     // Add more payload types as needed
 }
 
@@ -135,8 +137,10 @@ pub enum CallPayload {
 pub enum CallResultPayload {
     BootNotification(BootNotificationResponse),
     StatusNotification(StatusNotificationResponse),
-    Heartbeat(HeartbeatResponse),
     MeterValues(MeterValuesResponse),
+    // Heartbeats should go last since it's an empty struct and can cause problems with serde's untagged
+    // parser
+    Heartbeat(HeartbeatResponse),
     // Add more payload types as needed
 }
 
