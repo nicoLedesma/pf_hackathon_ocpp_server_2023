@@ -90,8 +90,7 @@ validate-server-tls:
 	openssl s_client -connect ${DOMAIN_NAME}:${WSS_PORT} -tls1_3 -showcerts
 
 run_tiny_static_http_server:
-	docker build -t tiny_static_http_server .
-	docker run -p 80:80 -t tiny_static_http_server
+	cd tiny_static_http_server ; make run
 
 letsencrypt-certificate-generation:
 	@echo "Suggestion: use the included ./static_http_server to serve the letsencrypt files to verify ownership of the ${LETSENCRYPT_DOMAIN}. Simply copy the necessary files into ./static_http_server and run it."
