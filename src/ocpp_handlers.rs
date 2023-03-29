@@ -2,6 +2,7 @@ use crate::evse_state::{ConnectorInfo, EvseMetadata, EvseState};
 use crate::ocpp::{parse_ocpp_message, Action, CallPayload, CallResultPayload, OcppMessage};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
+use log::{info, warn};
 use rust_ocpp::v1_6::messages::boot_notification::{
     BootNotificationRequest, BootNotificationResponse,
 };
@@ -23,7 +24,7 @@ impl InfallibleMessageHandler for BootNotificationRequest {
 
     fn handle_message(self, evse_state: &mut EvseState) -> Self::CallResult {
         // Handle the BootNotification message and return the response
-        println!("Handling BootNotification message: {:?}", self);
+        info!("Handling BootNotification message: {:?}", self);
 
         let response = BootNotificationResponse {
             status: RegistrationStatus::Accepted,
@@ -50,7 +51,7 @@ impl InfallibleMessageHandler for StatusNotificationRequest {
 
     fn handle_message(self, evse_state: &mut EvseState) -> Self::CallResult {
         // Handle the StatusNotification message and return the response
-        println!("Handling StatusNotification message: {:?}", self);
+        info!("Handling StatusNotification message: {:?}", self);
 
         match evse_state {
             EvseState::WebsocketConnected(metadata) => metadata.update_info(ConnectorInfo {
@@ -61,7 +62,7 @@ impl InfallibleMessageHandler for StatusNotificationRequest {
                 vendor_id: self.vendor_id,
                 timestamp: self.timestamp,
             }),
-            EvseState::Empty => println!("StatusNotification but no metadata???"),
+            EvseState::Empty => warn!("StatusNotification but no metadata???"),
         }
 
         StatusNotificationResponse {}
@@ -73,7 +74,7 @@ impl InfallibleMessageHandler for HeartbeatRequest {
 
     fn handle_message(self, _evse_state: &mut EvseState) -> Self::CallResult {
         // Handle the Heartbeat message and return the response
-        println!("Handling Heartbeat message: {:?}", self);
+        info!("Handling Heartbeat message: {:?}", self);
 
         HeartbeatResponse {
             current_time: Utc::now(),
@@ -86,7 +87,7 @@ impl InfallibleMessageHandler for MeterValuesRequest {
 
     fn handle_message(self, _evse_state: &mut EvseState) -> Self::CallResult {
         // Handle the MeterValues message and return the response
-        println!("Handling MeterValues message: {:?}", self);
+        info!("Handling MeterValues message: {:?}", self);
 
         MeterValuesResponse {}
     }
@@ -139,7 +140,7 @@ pub fn ocpp_process_and_respond_str(message: String, evse_state: &mut EvseState)
     let ocpp_message = parse_ocpp_message(message)?;
     let response = ocpp_process_and_respond(ocpp_message, evse_state)?;
 
-    println!("Will send response {:?}", response);
+    info!("Will send response {:?}", response);
 
     // How to convert serde error into anyhow error without unwrapping and re-wrapping?
     Ok(response.try_into()?)

@@ -51,8 +51,8 @@ docker-build-dev:
 	docker build -t ocpp_server_dev . -f Dockerfile.dev
 
 copy-letsencrypt-pem: letsencrypt-domain-is-set
-	cp ${LETSENCRYPT_CERTIFICATE_PEM} ${TLS_CERTIFICATE_PEM}
-	cp ${LETSENCRYPT_PRIVATE_SECRET_KEY_PEM} ${TLS_PRIVATE_KEY_PEM}
+	-cp ${LETSENCRYPT_CERTIFICATE_PEM} ${TLS_CERTIFICATE_PEM}
+	-cp ${LETSENCRYPT_PRIVATE_SECRET_KEY_PEM} ${TLS_PRIVATE_KEY_PEM}
 
 copy-selfsigned-pem:
 	cp ${SELFSIGNED_TLS_CERTIFICATE_PEM} ${TLS_CERTIFICATE_PEM}
@@ -71,6 +71,7 @@ docker-run-dev: copy-letsencrypt-pem docker-build-dev
 		-e RUST_BACKTRACE="${RUST_BACKTRACE}" \
 		-v "${TLS_CERTIFICATE_PEM}":/home/nonroot/certificate.pem \
 		-v "${TLS_PRIVATE_KEY_PEM}":/home/nonroot/private_key.pem \
+		-p 8080:8080 \
 		-p ${WSS_PORT}:${WSS_PORT} \
 		-p ${WSS_PORT2}:${WSS_PORT2} \
 		-p 8765:8765 \
@@ -95,7 +96,7 @@ run_tiny_static_http_server:
 letsencrypt-certificate-generation:
 	@echo "Suggestion: use the included ./static_http_server to serve the letsencrypt files to verify ownership of the ${LETSENCRYPT_DOMAIN}. Simply copy the necessary files into ./static_http_server and run it."
 	certbot certonly --manual \
-		--work-dir ${LETSENCRYPT_DIR}/work --config-dir ${LETSENCRYPT_DIR}/config --logs-dir ./letsencrypt/logs
+		--work-dir ${LETSENCRYPT_DIR}/work --config-dir ${LETSENCRYPT_DIR}/config --logs-dir ${LETSENCRYPT_DIR}/logs
 
 letsencrypt-identity-file: letsencrypt-domain-is-set
 	openssl pkcs12 -passout file:"${IDENTITY_PASSWORD_FILE}" -export -in ${LETSENCRYPT_CERTIFICATE_PEM} -inkey ${LETSENCRYPT_PRIVATE_SECRET_KEY_PEM}  -out ${LETSENCRYPT_IDENTITY_PKCS12_DER}  -name "Letsencrypt ${DOMAIN_NAME}"

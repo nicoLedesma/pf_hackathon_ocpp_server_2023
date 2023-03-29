@@ -1,11 +1,7 @@
-// TODO [prom] measure tls handshake time
-// TODO [prom] measure websocket handshake time
-// TODO [prom] measure websocket latency
-// TODO [prom] measure websocket bandwidth, with and without compression
-// TODO [prom] measure OCPP message bandwidth
 // TODO close connections gracefully (on SIGTERM/SIGKILL or as needed)
 // TODO NATS API to send OCPP messages
 use futures_util::{SinkExt, StreamExt};
+use log::{error, info};
 use std::net::SocketAddr;
 use std::os::unix::prelude::PermissionsExt;
 use std::str::FromStr;
@@ -20,6 +16,8 @@ use x509_parser::pem::Pem;
 use x509_parser::x509::X509Version;
 
 pub mod evse_state;
+pub mod logstuff;
+pub mod metrics;
 pub mod normalize_input;
 pub mod ocpp;
 pub mod ocpp_handlers;
@@ -41,9 +39,10 @@ const ADDRESSES: &[(Protocol, &str)] = &[
 
 #[tokio::main]
 async fn main() {
+    crate::logstuff::setup_logger().expect("Unable to configure logger");
     let current_exe = std::env::current_exe().expect("Current exe's path not found");
     let my_metadata = std::fs::metadata(&current_exe).expect("Unable to read exe's metadata");
-    println!(
+    info!(
         "Hello, world! Executing {} {} bytes ({:0o}), version {}",
         current_exe.to_string_lossy(),
         my_metadata.len(),
@@ -56,11 +55,11 @@ async fn main() {
     for &(protocol, address) in ADDRESSES {
         let server_task = match protocol {
             Protocol::Ws => {
-                println!("Will listen on: ws://{}", address);
+                info!("Will listen on: ws://{}", address);
                 task::spawn(serve_unencrypted(address))
             }
             Protocol::Wss => {
-                println!("Will listen on: wss://{}", address);
+                info!("Will listen on: wss://{}", address);
                 task::spawn(serve_encrypted_tls(address))
             }
         };
@@ -68,10 +67,12 @@ async fn main() {
         tasks.push(server_task);
     }
 
+    tasks.push(tokio::spawn(crate::metrics::start_http_server()));
+
     // Wait for all tasks to complete
     for task in tasks {
         if let Err(e) = task.await {
-            eprintln!("Task failed! {}", e);
+            error!("Task failed! {}", e);
         }
     }
 }
@@ -93,7 +94,7 @@ async fn serve_unencrypted(addr: &str) {
     let tcp_listener = bind(addr).await.unwrap();
     loop {
         if let Err(e) = accept_unencrypted_connection(addr, &tcp_listener).await {
-            eprintln!("ERROR! {:?}", e);
+            error!("ERROR! {:?}", e);
         }
     }
 }
@@ -129,7 +130,7 @@ async fn serve_encrypted_tls(addr: &str) {
                     "Expect Subject Alternative Name field in the end-entity certificate (index 0)",
                 )
                 .expect("um");
-            println!("Loaded cert with Subject alt names (SNA): {:?}", san.value);
+            info!("Loaded cert with Subject alt names (SNA): {:?}", san.value);
         }
     }
     assert!(pem_contains_at_least_one_cert);
@@ -161,7 +162,7 @@ async fn serve_encrypted_tls(addr: &str) {
         .with_safe_default_cipher_suites()
         .with_safe_default_kx_groups()
         .with_protocol_versions(&[
-            // &tokio_rustls::rustls::version::TLS13,
+            &tokio_rustls::rustls::version::TLS13,
             &tokio_rustls::rustls::version::TLS12,
         ])
         .expect("Unable to set TLS settings")
@@ -175,7 +176,7 @@ async fn serve_encrypted_tls(addr: &str) {
     // Accept incoming connections
     loop {
         if let Err(e) = accept_tls_connection(addr, &tcp_listener, &tls_acceptor).await {
-            eprintln!("ERROR! {:?}", e);
+            error!("ERROR! {:?}", e);
         }
     }
 }
@@ -186,11 +187,9 @@ async fn accept_tls_connection(
     tls_acceptor: &TlsAcceptor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
-    println!(
-        "{}: Secured TLS Connection to {} received from {}",
-        chrono::Utc::now(),
-        addr,
-        peer_addr
+    info!(
+        "Secured TLS Connection to {} received from {}",
+        addr, peer_addr
     );
 
     // let mut tls_stream = tls_acceptor.accept(tcp_stream).await?;
@@ -203,7 +202,7 @@ async fn accept_tls_connection(
     //    if n == 0 {
     //        continue;
     //    }
-    //    println!("The bytes: {:?}", &buffer[..n]);
+    //    info!("The bytes: {:?}", &buffer[..n]);
     //}
 
     let tls_stream = tls_acceptor.accept(tcp_stream).await?;
@@ -216,11 +215,9 @@ async fn accept_unencrypted_connection(
     tcp_listener: &TcpListener,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
-    println!(
-        "{}: Unencrypted Connection to {} received from {}",
-        chrono::Utc::now(),
-        addr,
-        peer_addr
+    info!(
+        "Unencrypted Connection to {} received from {}",
+        addr, peer_addr
     );
     tokio::spawn(handle_connection(tcp_stream, peer_addr));
     Ok(())
@@ -230,68 +227,79 @@ async fn handle_connection<S>(stream: S, peer_addr: SocketAddr)
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let callback = |req: &tungstenite::handshake::server::Request,
-                    response: tungstenite::handshake::server::Response| {
-        println!("The request's path is: {}", req.uri().path());
-        for (ref header, _value) in req.headers() {
-            println!("* {}: {:?}", header, _value);
-        }
-        Ok(response)
-    };
+    let http_callback =
+        |req: &tungstenite::handshake::server::Request,
+         response: tungstenite::handshake::server::Response| {
+            info!("The request's path is: {}", req.uri().path());
+            for (ref header, _value) in req.headers() {
+                info!("* {}: {:?}", header, _value);
+            }
+            Ok(response)
+        };
 
     // Accept the WebSocket handshake
-    let mut ws_stream = accept_hdr_async(stream, callback)
+    let mut ws_stream = accept_hdr_async(stream, http_callback)
         .await
         .expect("Failed to accept websocket connection");
     let mut state: crate::evse_state::EvseState = crate::evse_state::EvseState::Empty;
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {
-        println!("Websocket message from {}", &peer_addr);
-        match msg {
-            Ok(Message::Text(text)) => {
-                println!("Received Text message: {}", text);
-                let raw_response =
-                    crate::ocpp_handlers::ocpp_process_and_respond_str(text, &mut state);
+        info!("Websocket message from {}", &peer_addr);
 
-                match raw_response {
-                    Ok(response) => {
-                        println!("Sending response: {}", response);
-                        ws_stream
-                            .send(Message::Text(response))
-                            .await
-                            .expect("Failed to send response to websocket Text message");
+        match msg {
+            Ok(msg_contents) => {
+                crate::metrics::WEBSOCKET_BYTES_RECEIVED.inc_by(msg_contents.len() as u64);
+                match msg_contents {
+                    Message::Text(text) => {
+                        info!("Received Text message: {}", text);
+                        crate::metrics::OCPP_MESSAGE_BYTES_RECEIVED.inc_by(text.len() as u64);
+
+                        let raw_response =
+                            crate::ocpp_handlers::ocpp_process_and_respond_str(text, &mut state);
+
+                        match raw_response {
+                            Ok(response) => {
+                                info!("Sending response: {}", response);
+                                crate::metrics::OCPP_MESSAGE_BYTES_SENT
+                                    .inc_by(response.len() as u64);
+                                ws_stream
+                                    .send(Message::Text(response))
+                                    .await
+                                    .expect("Failed to send response to websocket Text message");
+                            }
+                            Err(err) => {
+                                error!("ERROR parsing request and generating response: {}", err)
+                            }
+                        }
                     }
-                    Err(err) => {
-                        eprintln!("ERROR parsing request and generating response: {}", err)
+                    Message::Binary(data) => {
+                        info!("Received Binary message with length: {}", data.len());
+                    }
+                    Message::Ping(data) => {
+                        info!("Received PING message with length: {}", data.len());
+                        info!("Sent PONG message in response to PING {:?}", &data);
+                        ws_stream
+                            .send(Message::Pong(data))
+                            .await
+                            .expect("Failed to send PONG in response to PING websocket message");
+                    }
+                    Message::Pong(data) => {
+                        info!("Received PONG message with length: {}", data.len());
+                    }
+                    Message::Close(data) => {
+                        info!("Received CLOSE message {:?}", data);
+                        return;
+                    }
+                    Message::Frame(data) => {
+                        info!("Received FRAME message with length: {}", data.len());
                     }
                 }
-            }
-            Ok(Message::Binary(data)) => {
-                println!("Received Binary message with length: {}", data.len());
-            }
-            Ok(Message::Ping(data)) => {
-                println!("Received PING message with length: {}", data.len());
-                println!("Sent PONG message in response to PING {:?}", &data);
-                ws_stream
-                    .send(Message::Pong(data))
-                    .await
-                    .expect("Failed to send PONG in response to PING websocket message");
-            }
-            Ok(Message::Pong(data)) => {
-                println!("Received PONG message with length: {}", data.len());
-            }
-            Ok(Message::Close(data)) => {
-                println!("Received CLOSE message {:?}", data);
-                return;
-            }
-            Ok(Message::Frame(data)) => {
-                println!("Received FRAME message with length: {}", data.len());
             }
             Err(tungstenite::Error::Protocol(
                 tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
             )) => {
-                eprintln!("ERROR Client closed without Websocket Closing Handshake");
+                error!("ERROR Client closed without Websocket Closing Handshake");
                 return;
             }
             Err(err) => {
@@ -317,7 +325,7 @@ where
 
                 In general, it's essential to handle errors gracefully and only close the WebSocket connection when necessary. Always consider the specific requirements and constraints of your application when deciding how to handle errors.
                                 */
-                eprintln!("ERROR while processing websocket message: {}", err);
+                error!("ERROR while processing websocket message: {}", err);
                 return;
             }
         }
