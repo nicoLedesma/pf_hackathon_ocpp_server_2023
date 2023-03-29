@@ -1,7 +1,6 @@
 // TODO close connections gracefully (on SIGTERM/SIGKILL or as needed)
 // TODO NATS API to send OCPP messages
-use tracing::{info_span, instrument, Instrument, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::{info_span, instrument, Instrument};
 
 use futures_util::{SinkExt, StreamExt};
 use log::{error, info};
@@ -53,19 +52,6 @@ async fn main() {
         CARGO_PKG_VERSION,
     );
 
-    // setup tracing
-    let subscriber = FmtSubscriber::builder()
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-        .with_target(true)
-        .with_file(true)
-        .with_line_number(true)
-        .pretty()
-        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-        // will be written to stdout.
-        .with_max_level(Level::TRACE)
-        // completes the builder.
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     tracing::info!(service = "ocpp.rs", version = "v0", "Starting up");
 
     let mut tasks = Vec::new();
@@ -140,6 +126,7 @@ async fn serve_encrypted_tls(addr: &str) {
     // Parse and validate certificate
     // TODO verify certificate expiration date and other metadata
     let mut pem_contains_at_least_one_cert = false;
+    let mut server_tls_name: Option<String> = None;
     for (index, pem) in Pem::iter_from_buffer(&tls_certificate_pem).enumerate() {
         pem_contains_at_least_one_cert = true;
         let pem = pem.expect("Reading next PEM block failed");
@@ -156,6 +143,7 @@ async fn serve_encrypted_tls(addr: &str) {
                 )
                 .expect("um");
             info!("Loaded cert with Subject alt names (SNA): {:?}", san.value);
+            server_tls_name = Some(format!("{:?}", san.value));
         }
     }
     assert!(pem_contains_at_least_one_cert);
@@ -200,7 +188,10 @@ async fn serve_encrypted_tls(addr: &str) {
 
     // Accept incoming connections
     loop {
-        if let Err(e) = accept_tls_connection(addr, &tcp_listener, &tls_acceptor).await {
+        if let Err(e) = async { accept_tls_connection(addr, &tcp_listener, &tls_acceptor).await }
+            .instrument(info_span!("tls", server_tls_name))
+            .await
+        {
             error!("ERROR! {:?}", e);
         }
     }
@@ -239,7 +230,11 @@ async fn accept_tls_connection(
         .with_label_values(&[peer_addr.to_string().as_str()])
         .set(now.elapsed().as_secs_f64());
 
-    tokio::spawn(handle_connection(tls_stream, peer_addr));
+    tokio::spawn(handle_connection_with_tracing(
+        tls_stream,
+        peer_addr,
+        addr.to_string(),
+    ));
     Ok(())
 }
 
@@ -253,8 +248,25 @@ async fn accept_unencrypted_connection(
         "Unencrypted Connection to {} received from {}",
         addr, peer_addr
     );
-    tokio::spawn(handle_connection(tcp_stream, peer_addr));
+    tokio::spawn(handle_connection_with_tracing(
+        tcp_stream,
+        peer_addr,
+        addr.to_string(),
+    ));
     Ok(())
+}
+
+async fn handle_connection_with_tracing<S>(stream: S, peer_addr: SocketAddr, addr: String)
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    async { handle_connection(stream, peer_addr).await }
+        .instrument(info_span!(
+            "websocket",
+            addr,
+            peer_addr = peer_addr.to_string()
+        ))
+        .await
 }
 
 async fn handle_connection<S>(stream: S, peer_addr: SocketAddr)
@@ -293,102 +305,116 @@ where
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {
-        info!("Websocket message from {}", &peer_addr);
+        handle_websocket_msg(msg, &mut ws_stream, &mut state, serial_number, peer_addr)
+            .instrument(info_span!("msg"))
+            .await
+    }
+}
 
-        match msg {
-            Ok(msg_contents) => {
-                crate::metrics::WEBSOCKET_BYTES_RECEIVED
-                    .with_label_values(&[serial_number])
-                    .inc_by(msg_contents.len() as u64);
-                match msg_contents {
-                    Message::Text(text) => {
-                        info!("Received Text message: {}", text);
-                        crate::metrics::OCPP_MESSAGE_BYTES_RECEIVED
-                            .with_label_values(&[serial_number])
-                            .inc_by(text.len() as u64);
-                        tracing::info!("Received Text from websocket connection");
+pub async fn handle_websocket_msg<S>(
+    msg: Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
+    ws_stream: &mut tokio_tungstenite::WebSocketStream<S>,
+    state: &mut crate::evse_state::EvseState,
+    serial_number: &str,
+    peer_addr: SocketAddr,
+) where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    info!("Websocket message from {}", &peer_addr);
 
-                        let raw_response =
-                            crate::ocpp_handlers::ocpp_process_and_respond_str(text, &mut state);
+    match msg {
+        Ok(msg_contents) => {
+            crate::metrics::WEBSOCKET_BYTES_RECEIVED
+                .with_label_values(&[serial_number])
+                .inc_by(msg_contents.len() as u64);
+            match msg_contents {
+                Message::Text(text) => {
+                    info!("Received Text message: {}", text);
+                    crate::metrics::OCPP_MESSAGE_BYTES_RECEIVED
+                        .with_label_values(&[serial_number])
+                        .inc_by(text.len() as u64);
+                    tracing::info!("Received Text from websocket connection");
 
-                        match raw_response {
-                            Ok(response) => {
-                                info!("Sending response: {}", response);
-                                crate::metrics::OCPP_MESSAGE_BYTES_SENT
-                                    .with_label_values(&[serial_number])
-                                    .inc_by(response.len() as u64);
-                                tracing::info!("Sending Text to websocket connection");
-                                ws_stream
-                                    .send(Message::Text(response))
-                                    .await
-                                    .expect("Failed to send response to websocket Text message");
-                            }
-                            Err(err) => {
-                                error!("ERROR parsing request and generating response: {}", err)
-                            }
+                    let raw_response =
+                        crate::ocpp_handlers::ocpp_process_and_respond_str(text, state);
+
+                    match raw_response {
+                        Ok(response) => {
+                            info!("Sending response: {}", response);
+                            crate::metrics::OCPP_MESSAGE_BYTES_SENT
+                                .with_label_values(&[serial_number])
+                                .inc_by(response.len() as u64);
+                            tracing::info!("Sending Text to websocket connection");
+                            ws_stream
+                                .send(Message::Text(response))
+                                .await
+                                .expect("Failed to send response to websocket Text message");
+                        }
+                        Err(err) => {
+                            error!("ERROR parsing request and generating response: {}", err)
                         }
                     }
-                    Message::Binary(data) => {
-                        info!("Received Binary message with length: {}", data.len());
-                    }
-                    Message::Ping(data) => {
-                        info!("Received PING message with length: {}", data.len());
-                        let ping_now = std::time::Instant::now();
-                        ws_stream
-                            .send(Message::Pong(data))
-                            .await
-                            .expect("Failed to send PONG in response to PING websocket message");
+                }
+                Message::Binary(data) => {
+                    info!("Received Binary message with length: {}", data.len());
+                }
+                Message::Ping(data) => {
+                    info!("Received PING message with length: {}", data.len());
+                    let ping_now = std::time::Instant::now();
+                    ws_stream
+                        .send(Message::Pong(data))
+                        .await
+                        .expect("Failed to send PONG in response to PING websocket message");
 
-                        crate::metrics::WEBSOCKET_PONG_TRANSMIT_TIME
-                            .with_label_values(&[peer_addr.to_string().as_str(), serial_number])
-                            .set(ping_now.elapsed().as_secs_f64());
+                    crate::metrics::WEBSOCKET_PONG_TRANSMIT_TIME
+                        .with_label_values(&[peer_addr.to_string().as_str(), serial_number])
+                        .set(ping_now.elapsed().as_secs_f64());
 
-                        info!("Sent PONG message in response to PING");
-                    }
-                    Message::Pong(data) => {
-                        info!("Received PONG message with length: {}", data.len());
-                    }
-                    Message::Close(data) => {
-                        info!("Received CLOSE message {:?}", data);
-                        return;
-                    }
-                    Message::Frame(data) => {
-                        info!("Received FRAME message with length: {}", data.len());
-                    }
+                    info!("Sent PONG message in response to PING");
+                }
+                Message::Pong(data) => {
+                    info!("Received PONG message with length: {}", data.len());
+                }
+                Message::Close(data) => {
+                    info!("Received CLOSE message {:?}", data);
+                    return;
+                }
+                Message::Frame(data) => {
+                    info!("Received FRAME message with length: {}", data.len());
                 }
             }
-            Err(tungstenite::Error::Protocol(
-                tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
-            )) => {
-                error!("ERROR Client closed without Websocket Closing Handshake");
-                return;
-            }
-            Err(err) => {
-                /*
-                                Are any of these errors recoverable?
+        }
+        Err(tungstenite::Error::Protocol(
+            tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
+        )) => {
+            error!("ERROR Client closed without Websocket Closing Handshake");
+            return;
+        }
+        Err(err) => {
+            /*
+                            Are any of these errors recoverable?
 
-                                Chat GPT 4:
-                                WebSocket protocol errors can be categorized into two types: recoverable and non-recoverable errors. It's important to understand which errors can be recovered from and which require closing the WebSocket connection.
+                            Chat GPT 4:
+                            WebSocket protocol errors can be categorized into two types: recoverable and non-recoverable errors. It's important to understand which errors can be recovered from and which require closing the WebSocket connection.
 
-                                Recoverable errors:
-                                Recoverable errors are those that can be handled by the server without closing the WebSocket connection. These errors might include:
+                            Recoverable errors:
+                            Recoverable errors are those that can be handled by the server without closing the WebSocket connection. These errors might include:
 
-                                Invalid message format: If the server receives a message with an invalid format, it may ignore the message and continue processing subsequent messages.
-                                Application-level errors: Errors that occur within the application logic that uses the WebSocket connection can often be handled without closing the connection. For example, if a chat server receives a malformed chat message, it could respond with an error message to the client but keep the connection open for further communication.
+                            Invalid message format: If the server receives a message with an invalid format, it may ignore the message and continue processing subsequent messages.
+                            Application-level errors: Errors that occur within the application logic that uses the WebSocket connection can often be handled without closing the connection. For example, if a chat server receives a malformed chat message, it could respond with an error message to the client but keep the connection open for further communication.
 
-                                Non-recoverable errors:
-                                Non-recoverable errors are those that require closing the WebSocket connection. These errors often involve issues with the WebSocket protocol itself or with the underlying transport (e.g., TCP). Examples of non-recoverable errors include:
+                            Non-recoverable errors:
+                            Non-recoverable errors are those that require closing the WebSocket connection. These errors often involve issues with the WebSocket protocol itself or with the underlying transport (e.g., TCP). Examples of non-recoverable errors include:
 
-                                Protocol violations: If a client sends a message that violates the WebSocket protocol, such as using a reserved opcode or providing an incorrect payload length, the server should close the connection.
-                                Connection issues: If the underlying TCP connection is lost or experiences severe issues (e.g., high latency, packet loss), the WebSocket connection may need to be closed.
-                                Authentication or authorization issues: If a client fails to authenticate or does not have the necessary permissions to perform an action, the server may decide to close the connection.
-                                Resource constraints: If the server is running low on resources (e.g., memory, CPU), it might decide to close some WebSocket connections to free up resources.
+                            Protocol violations: If a client sends a message that violates the WebSocket protocol, such as using a reserved opcode or providing an incorrect payload length, the server should close the connection.
+                            Connection issues: If the underlying TCP connection is lost or experiences severe issues (e.g., high latency, packet loss), the WebSocket connection may need to be closed.
+                            Authentication or authorization issues: If a client fails to authenticate or does not have the necessary permissions to perform an action, the server may decide to close the connection.
+                            Resource constraints: If the server is running low on resources (e.g., memory, CPU), it might decide to close some WebSocket connections to free up resources.
 
-                In general, it's essential to handle errors gracefully and only close the WebSocket connection when necessary. Always consider the specific requirements and constraints of your application when deciding how to handle errors.
-                                */
-                error!("ERROR while processing websocket message: {}", err);
-                return;
-            }
+            In general, it's essential to handle errors gracefully and only close the WebSocket connection when necessary. Always consider the specific requirements and constraints of your application when deciding how to handle errors.
+                            */
+            error!("ERROR while processing websocket message: {}", err);
+            return;
         }
     }
 }

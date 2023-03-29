@@ -1,3 +1,4 @@
+use tracing::{info_span, instrument, Instrument};
 use crate::evse_state::{ConnectorInfo, EvseMetadata, EvseState};
 use crate::ocpp::{parse_ocpp_message, Action, CallPayload, CallResultPayload, OcppMessage};
 use anyhow::{anyhow, Result};
@@ -93,6 +94,7 @@ impl InfallibleMessageHandler for MeterValuesRequest {
     }
 }
 
+#[instrument]
 fn ocpp_process_and_respond(
     message: OcppMessage,
     evse_state: &mut EvseState,
