@@ -1,5 +1,8 @@
 // TODO close connections gracefully (on SIGTERM/SIGKILL or as needed)
 // TODO NATS API to send OCPP messages
+use tracing::{info_span, instrument, Instrument, Level};
+use tracing_subscriber::FmtSubscriber;
+
 use futures_util::{SinkExt, StreamExt};
 use log::{error, info};
 use std::net::SocketAddr;
@@ -39,7 +42,7 @@ const ADDRESSES: &[(Protocol, &str)] = &[
 
 #[tokio::main]
 async fn main() {
-    crate::logstuff::setup_logger().expect("Unable to configure logger");
+    crate::logstuff::setup_logger();
     let current_exe = std::env::current_exe().expect("Current exe's path not found");
     let my_metadata = std::fs::metadata(&current_exe).expect("Unable to read exe's metadata");
     info!(
@@ -49,6 +52,21 @@ async fn main() {
         my_metadata.permissions().mode(),
         CARGO_PKG_VERSION,
     );
+
+    // setup tracing
+    let subscriber = FmtSubscriber::builder()
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true)
+        .pretty()
+        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+        // will be written to stdout.
+        .with_max_level(Level::TRACE)
+        // completes the builder.
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    tracing::info!(service = "ocpp.rs", version = "v0", "Starting up");
 
     let mut tasks = Vec::new();
 
@@ -77,18 +95,24 @@ async fn main() {
     }
 }
 
+#[instrument]
 async fn bind(addr: &str) -> Result<TcpListener, Box<dyn std::error::Error>> {
     // Bind the TCP listener
-    Ok(TcpListener::bind(
+    let bound = Ok(TcpListener::bind(
         String::from_str(addr)
             .unwrap()
             .parse::<SocketAddr>()
             .expect("Failed to parse socket address"),
     )
     .await
-    .expect(&format!("Failed to bind to address {}", &addr)))
+    .expect(&format!("Failed to bind to address {}", &addr)));
+
+    tracing::info!("Bound to address {}", &addr);
+
+    bound
 }
 
+#[instrument]
 async fn serve_unencrypted(addr: &str) {
     // Accept incoming connections
     let tcp_listener = bind(addr).await.unwrap();
@@ -99,6 +123,7 @@ async fn serve_unencrypted(addr: &str) {
     }
 }
 
+#[instrument]
 async fn serve_encrypted_tls(addr: &str) {
     // Bind the TCP listener before attempting to load any TLS stuff
     // TODO how to get rid of this unwrap? I'm getting future returned by `serve_encrypted_tls` is not `Send`
@@ -186,7 +211,9 @@ async fn accept_tls_connection(
     tcp_listener: &TcpListener,
     tls_acceptor: &TlsAcceptor,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (tcp_stream, peer_addr) = tcp_listener.accept().await?;
+    let (tcp_stream, peer_addr) = async { tcp_listener.accept().await }
+        .instrument(info_span!("Accepted TCP connection"))
+        .await?;
     info!(
         "Secured TLS Connection to {} received from {}",
         addr, peer_addr
@@ -216,6 +243,7 @@ async fn accept_tls_connection(
     Ok(())
 }
 
+#[tracing::instrument]
 async fn accept_unencrypted_connection(
     addr: &str,
     tcp_listener: &TcpListener,
@@ -255,10 +283,12 @@ where
         .expect("Failed to accept websocket connection");
     let s = serial_number_mutex.lock().unwrap().clone();
     let serial_number = s.as_str();
-
     crate::metrics::WEBSOCKET_HANDSHAKE_TIME
         .with_label_values(&[peer_addr.to_string().as_str(), serial_number])
         .set(now.elapsed().as_secs_f64());
+
+    tracing::info!("Accepted websocket connection");
+
     let mut state: crate::evse_state::EvseState = crate::evse_state::EvseState::Empty;
 
     // Handle incoming messages
@@ -276,6 +306,7 @@ where
                         crate::metrics::OCPP_MESSAGE_BYTES_RECEIVED
                             .with_label_values(&[serial_number])
                             .inc_by(text.len() as u64);
+                        tracing::info!("Received Text from websocket connection");
 
                         let raw_response =
                             crate::ocpp_handlers::ocpp_process_and_respond_str(text, &mut state);
@@ -286,6 +317,7 @@ where
                                 crate::metrics::OCPP_MESSAGE_BYTES_SENT
                                     .with_label_values(&[serial_number])
                                     .inc_by(response.len() as u64);
+                                tracing::info!("Sending Text to websocket connection");
                                 ws_stream
                                     .send(Message::Text(response))
                                     .await
