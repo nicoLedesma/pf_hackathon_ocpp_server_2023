@@ -35,7 +35,7 @@ enum Protocol {
 }
 
 const ADDRESSES: &[(Protocol, &str)] = &[
-    (Protocol::Ws, "0.0.0.0:8765"),
+    // (Protocol::Ws, "0.0.0.0:8765"),
     (Protocol::Wss, "0.0.0.0:5678"),
 ];
 
