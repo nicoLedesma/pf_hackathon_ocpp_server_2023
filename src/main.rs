@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 use tokio::task;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
-use tokio_tungstenite::accept_async;
+use tokio_tungstenite::accept_hdr_async;
 use tungstenite::Message;
 use x509_parser::pem::Pem;
 use x509_parser::x509::X509Version;
@@ -230,8 +230,17 @@ async fn handle_connection<S>(stream: S, peer_addr: SocketAddr)
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    let callback = |req: &tungstenite::handshake::server::Request,
+                    response: tungstenite::handshake::server::Response| {
+        println!("The request's path is: {}", req.uri().path());
+        for (ref header, _value) in req.headers() {
+            println!("* {}: {:?}", header, _value);
+        }
+        Ok(response)
+    };
+
     // Accept the WebSocket handshake
-    let mut ws_stream = accept_async(stream)
+    let mut ws_stream = accept_hdr_async(stream, callback)
         .await
         .expect("Failed to accept websocket connection");
     let mut state: crate::evse_state::EvseState = crate::evse_state::EvseState::Empty;
