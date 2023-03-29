@@ -205,7 +205,13 @@ async fn accept_tls_connection(
     //    info!("The bytes: {:?}", &buffer[..n]);
     //}
 
+    let now = std::time::Instant::now();
     let tls_stream = tls_acceptor.accept(tcp_stream).await?;
+
+    crate::metrics::TLS_HANDSHAKE_TIME
+        .with_label_values(&[peer_addr.to_string().as_str()])
+        .set(now.elapsed().as_secs_f64());
+
     tokio::spawn(handle_connection(tls_stream, peer_addr));
     Ok(())
 }
@@ -227,10 +233,15 @@ async fn handle_connection<S>(stream: S, peer_addr: SocketAddr)
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    let serial_number_mutex = std::sync::Mutex::new("?".to_string());
     let http_callback =
         |req: &tungstenite::handshake::server::Request,
          response: tungstenite::handshake::server::Response| {
             info!("The request's path is: {}", req.uri().path());
+            serial_number_mutex
+                .lock()
+                .unwrap()
+                .replace_range(.., req.uri().path());
             for (ref header, _value) in req.headers() {
                 info!("* {}: {:?}", header, _value);
             }
@@ -238,9 +249,16 @@ where
         };
 
     // Accept the WebSocket handshake
+    let now = std::time::Instant::now();
     let mut ws_stream = accept_hdr_async(stream, http_callback)
         .await
         .expect("Failed to accept websocket connection");
+    let s = serial_number_mutex.lock().unwrap().clone();
+    let serial_number = s.as_str();
+
+    crate::metrics::WEBSOCKET_HANDSHAKE_TIME
+        .with_label_values(&[peer_addr.to_string().as_str(), serial_number])
+        .set(now.elapsed().as_secs_f64());
     let mut state: crate::evse_state::EvseState = crate::evse_state::EvseState::Empty;
 
     // Handle incoming messages
@@ -249,11 +267,15 @@ where
 
         match msg {
             Ok(msg_contents) => {
-                crate::metrics::WEBSOCKET_BYTES_RECEIVED.inc_by(msg_contents.len() as u64);
+                crate::metrics::WEBSOCKET_BYTES_RECEIVED
+                    .with_label_values(&[serial_number])
+                    .inc_by(msg_contents.len() as u64);
                 match msg_contents {
                     Message::Text(text) => {
                         info!("Received Text message: {}", text);
-                        crate::metrics::OCPP_MESSAGE_BYTES_RECEIVED.inc_by(text.len() as u64);
+                        crate::metrics::OCPP_MESSAGE_BYTES_RECEIVED
+                            .with_label_values(&[serial_number])
+                            .inc_by(text.len() as u64);
 
                         let raw_response =
                             crate::ocpp_handlers::ocpp_process_and_respond_str(text, &mut state);
@@ -262,6 +284,7 @@ where
                             Ok(response) => {
                                 info!("Sending response: {}", response);
                                 crate::metrics::OCPP_MESSAGE_BYTES_SENT
+                                    .with_label_values(&[serial_number])
                                     .inc_by(response.len() as u64);
                                 ws_stream
                                     .send(Message::Text(response))
@@ -278,11 +301,17 @@ where
                     }
                     Message::Ping(data) => {
                         info!("Received PING message with length: {}", data.len());
-                        info!("Sent PONG message in response to PING {:?}", &data);
+                        let ping_now = std::time::Instant::now();
                         ws_stream
                             .send(Message::Pong(data))
                             .await
                             .expect("Failed to send PONG in response to PING websocket message");
+
+                        crate::metrics::WEBSOCKET_PONG_TRANSMIT_TIME
+                            .with_label_values(&[peer_addr.to_string().as_str(), serial_number])
+                            .set(ping_now.elapsed().as_secs_f64());
+
+                        info!("Sent PONG message in response to PING");
                     }
                     Message::Pong(data) => {
                         info!("Received PONG message with length: {}", data.len());

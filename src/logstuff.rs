@@ -3,8 +3,8 @@ pub fn setup_logger() -> Result<(), fern::InitError> {
         .format(|out, message, record| {
             out.finish(format_args!(
                 "[{} {} {}] {}",
-                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S:%.3f %Z"),
                 record.target(),
                 message
             ))
