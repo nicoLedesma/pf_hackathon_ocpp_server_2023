@@ -1,5 +1,6 @@
 // TODO close connections gracefully (on SIGTERM/SIGKILL or as needed)
 // TODO NATS API to send OCPP messages
+use crate::evse_state::{EvseMetadata, EvseState};
 use tracing::{info_span, instrument, Instrument};
 
 use futures_util::{SinkExt, StreamExt};
@@ -45,7 +46,7 @@ async fn main() {
     let current_exe = std::env::current_exe().expect("Current exe's path not found");
     let my_metadata = std::fs::metadata(&current_exe).expect("Unable to read exe's metadata");
     info!(
-        "Hello, world! Executing {} {} bytes ({:0o}), version {}",
+        "Hola, world! Executing {} {} bytes ({:0o}), version {}",
         current_exe.to_string_lossy(),
         my_metadata.len(),
         my_metadata.permissions().mode(),
@@ -294,14 +295,23 @@ where
         .await
         .expect("Failed to accept websocket connection");
     let s = serial_number_mutex.lock().unwrap().clone();
-    let serial_number = s.as_str();
+    let serial_number = s.strip_prefix("/").unwrap_or(s.as_str());
     crate::metrics::WEBSOCKET_HANDSHAKE_TIME
         .with_label_values(&[peer_addr.to_string().as_str(), serial_number])
         .set(now.elapsed().as_secs_f64());
 
     tracing::info!("Accepted websocket connection");
 
-    let mut state: crate::evse_state::EvseState = crate::evse_state::EvseState::Empty;
+    let mut state: crate::evse_state::EvseState =
+        EvseState::WebsocketConnected(Box::new(EvseMetadata::new(
+            uuid::Uuid::new_v4(),
+            None,
+            None,
+            Some(serial_number.to_string()),
+            None,
+            None,
+            None,
+        )));
 
     // Handle incoming messages
     while let Some(msg) = ws_stream.next().await {

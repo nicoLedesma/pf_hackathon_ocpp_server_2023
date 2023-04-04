@@ -1,9 +1,9 @@
-use tracing::{info_span, instrument, Instrument};
 use crate::evse_state::{ConnectorInfo, EvseMetadata, EvseState};
 use crate::ocpp::{parse_ocpp_message, Action, CallPayload, CallResultPayload, OcppMessage};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::{info, warn};
+use rust_ocpp::v1_6::messages::authorize::{AuthorizeRequest, AuthorizeResponse};
 use rust_ocpp::v1_6::messages::boot_notification::{
     BootNotificationRequest, BootNotificationResponse,
 };
@@ -12,7 +12,10 @@ use rust_ocpp::v1_6::messages::meter_values::{MeterValuesRequest, MeterValuesRes
 use rust_ocpp::v1_6::messages::status_notification::{
     StatusNotificationRequest, StatusNotificationResponse,
 };
+// TODO why is it private????
+// use rust_ocpp::v1_6::types::id_tag_info::IdTagInfo;
 use rust_ocpp::v1_6::types::RegistrationStatus;
+use tracing::instrument;
 use uuid::Uuid;
 
 trait InfallibleMessageHandler {
@@ -35,8 +38,8 @@ impl InfallibleMessageHandler for BootNotificationRequest {
 
         *evse_state = EvseState::WebsocketConnected(Box::new(EvseMetadata::new(
             Uuid::new_v4(),
-            self.charge_point_vendor,
-            self.charge_point_model,
+            Some(self.charge_point_vendor),
+            Some(self.charge_point_model),
             self.charge_point_serial_number,
             self.firmware_version,
             self.iccid,
@@ -63,7 +66,6 @@ impl InfallibleMessageHandler for StatusNotificationRequest {
                 vendor_id: self.vendor_id,
                 timestamp: self.timestamp,
             }),
-            EvseState::Empty => warn!("StatusNotification but no metadata???"),
         }
 
         StatusNotificationResponse {}
@@ -90,6 +92,19 @@ impl InfallibleMessageHandler for MeterValuesRequest {
         // Handle the MeterValues message and return the response
         info!("Handling MeterValues message: {:?}", self);
 
+        MeterValuesResponse {}
+    }
+}
+
+impl InfallibleMessageHandler for AuthorizeRequest {
+    // type CallResult = AuthorizeResponse;
+    type CallResult = MeterValuesResponse;
+
+    fn handle_message(self, _evse_state: &mut EvseState) -> Self::CallResult {
+        // Handle the Heartbeat message and return the response
+        info!("Handling AuthorizeRequest message: {:?}", self);
+
+        // AuthorizeResponse { id_tag_info }
         MeterValuesResponse {}
     }
 }
@@ -123,6 +138,11 @@ fn ocpp_process_and_respond(
             }),
             (Action::MeterValues, CallPayload::MeterValues(call)) => Ok(OcppMessage::CallResult {
                 unique_id,
+                payload: CallResultPayload::MeterValues(call.handle_message(evse_state)),
+            }),
+            (Action::Authorize, CallPayload::Authorize(call)) => Ok(OcppMessage::CallResult {
+                unique_id,
+                // TODO
                 payload: CallResultPayload::MeterValues(call.handle_message(evse_state)),
             }),
             // TODO how to make the type checker warn when we add a new type?

@@ -6,9 +6,9 @@ use uuid::Uuid;
 #[derive(Debug, PartialEq, Clone)]
 pub struct EvseMetadata {
     pub id: Uuid,
-    pub charge_point_model: String,
+    pub charge_point_model: Option<String>,
     pub charge_point_serial_number: Option<String>,
-    pub charge_point_vendor: String,
+    pub charge_point_vendor: Option<String>,
     pub firmware_version: Option<String>,
     pub iccid: Option<String>,
     pub imsi: Option<String>,
@@ -30,14 +30,13 @@ pub struct ConnectorInfo {
 #[derive(Debug, PartialEq, Clone)]
 pub enum EvseState {
     WebsocketConnected(Box<EvseMetadata>),
-    Empty,
 }
 
 impl EvseMetadata {
     pub fn new(
         id: Uuid,
-        charge_point_vendor: String,
-        charge_point_model: String,
+        charge_point_vendor: Option<String>,
+        charge_point_model: Option<String>,
         charge_point_serial_number: Option<String>,
         firmware_version: Option<String>,
         iccid: Option<String>,

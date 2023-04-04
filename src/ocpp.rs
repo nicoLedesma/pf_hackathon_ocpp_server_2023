@@ -1,5 +1,6 @@
 use crate::normalize_input::normalize_json_input;
 use anyhow::Result;
+use rust_ocpp::v1_6::messages::authorize::{AuthorizeRequest, AuthorizeResponse};
 use rust_ocpp::v1_6::messages::boot_notification::{
     BootNotificationRequest, BootNotificationResponse,
 };
@@ -117,6 +118,7 @@ pub enum Action {
     StatusNotification,
     Heartbeat,
     MeterValues,
+    Authorize,
     // Add more actions here as needed
 }
 
@@ -126,6 +128,7 @@ pub enum CallPayload {
     BootNotification(BootNotificationRequest),
     StatusNotification(StatusNotificationRequest),
     MeterValues(MeterValuesRequest),
+    Authorize(AuthorizeRequest),
     // Heartbeats should go last since it's an empty struct and can cause problems with serde's untagged
     // parser
     Heartbeat(HeartbeatRequest),
@@ -138,6 +141,7 @@ pub enum CallResultPayload {
     BootNotification(BootNotificationResponse),
     StatusNotification(StatusNotificationResponse),
     MeterValues(MeterValuesResponse),
+    Authorize(AuthorizeResponse),
     // Heartbeats should go last since it's an empty struct and can cause problems with serde's untagged
     // parser
     Heartbeat(HeartbeatResponse),
